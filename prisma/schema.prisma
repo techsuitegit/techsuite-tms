@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Applied manually in PostgreSQL. Do not run Prisma migrate/db push for this schema.
+enum SapModule {
+  PR
+  PO
+
+  @@map("sap_module")
+}
+
+enum UserType {
+  Console
+  Client
+
+  @@map("user_type")
+}
+
+enum SysLandscape {
+  DEV
+  QAS
+  PRD
+
+  @@map("sys_landscape")
+}
+
+enum ErpType {
+  ECC
+  S4H
+
+  @@map("erp_type")
+}
+
+enum ErpProductType {
+  On_Primes @map("On-Primes")
+  Cloud
+
+  @@map("erp_product_type")
+}
+
+model Client {
+  id         BigInt   @id @default(dbgenerated("nextval('client_seq')"))
+  name       String   @db.VarChar(250)
+  symbole    String   @unique @db.VarChar(5)
+  shortname  String?  @db.VarChar(50)
+  address1   String?  @db.VarChar(200)
+  address2   String?  @db.VarChar(200)
+  address3   String?  @db.VarChar(200)
+  state      String?  @db.VarChar(100)
+  city       String?  @db.VarChar(100)
+  country    String?  @db.VarChar(100)
+  pincode    String?  @db.VarChar(20)
+  contact    String?  @db.VarChar(100)
+  mobile     String?  @db.VarChar(100)
+  phone      String?  @db.VarChar(100)
+  email      String?  @db.VarChar(100)
+  website    String?  @db.VarChar(100)
+  gstin      String?  @db.VarChar(50)
+  permission Json?
+  logoname   String?  @db.VarChar(200)
+  logoimage  Bytes?   @db.ByteA
+  status     Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sapSystems SapSystem[]
+  users      User[]
+
+  @@map("client")
+}
+
+model User {
+  id         BigInt   @id @default(dbgenerated("nextval('user_seq')"))
+  name       String   @db.VarChar(150)
+  userType   UserType @default(Client) @map("usertype")
+  clientId   BigInt?  @map("clientid")
+  isAdmin    Boolean  @default(false) @map("isadmin")
+  shortname  String?  @db.VarChar(20)
+  loginUser  String   @unique @map("login_user") @db.VarChar(60)
+  loginEmail String   @unique @map("login_email") @db.VarChar(150)
+  password   String?  @db.VarChar(500)
+  phone      String?  @db.VarChar(50)
+  mobile     String?  @db.VarChar(50)
+  role       String?  @db.VarChar(100)
+  permission Json?
+  status     Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client        Client?            @relation(fields: [clientId], references: [id])
+  clientSystems UserClientSystem[]
+
+  @@map("users")
+}
+
+model SapSystem {
+  id          String         @id @db.VarChar(50)
+  clientId    BigInt         @map("clientid")
+  landscape   SysLandscape   @default(DEV)
+  erp         ErpType        @default(S4H)
+  productType ErpProductType @default(On_Primes) @map("producttype")
+  baseUrl     String         @map("baseurl") @db.VarChar(500)
+  sapClientId Int            @map("sapclientid")
+  port        Int
+  status      Boolean        @default(false)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client     Client             @relation(fields: [clientId], references: [id])
+  userAccess UserClientSystem[]
+
+  @@unique([clientId, landscape, erp, productType], map: "UQ_clientsystem")
+  @@map("sapsystem")
+}
+
+model UserClientSystem {
+  userId      BigInt   @map("userid")
+  sapSystemId String   @map("sapsystemid") @db.VarChar(50)
+  sapUser     String   @map("sapuser") @db.VarChar(100)
+  sapPassword String?  @map("sappassword") @db.VarChar(500)
+  status      Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user      User      @relation(fields: [userId], references: [id])
+  sapSystem SapSystem @relation(fields: [sapSystemId], references: [id])
+
+  @@id([userId, sapSystemId], map: "pk_user_client_system")
+  @@map("user_client_system")
+}
+
+model ModuleLabel {
+  moduleId  SapModule @map("moduleid")
+  sapSection String   @map("sapsection") @db.VarChar(250)
+  sapName    String   @map("sapname") @db.VarChar(250)
+  labelName  String?  @map("lablename") @db.VarChar(250)
+
+  @@id([moduleId, sapSection, sapName], map: "pk_module_label")
+  @@map("module_label")
+}
+
+model Country {
+  id             String    @id @db.VarChar(5)
+  name           String?   @db.VarChar(100)
+  shortname      String?   @db.VarChar(100)
+  telephoneCode  String?   @map("telephonecode") @db.VarChar(200)
+  seqNo          Int?      @map("seqno")
+  lastUpdateBy   String?   @map("lastupdateby") @db.VarChar(700)
+  lastUpdateDate DateTime? @map("lastupdatedate") @db.Timestamp(6)
+
+  states State[]
+
+  @@map("country")
+}
+
+model State {
+  countryId      String    @map("countryid") @db.VarChar(5)
+  stateCode      String    @map("statecode") @db.VarChar(5)
+  stateName      String    @map("statename") @db.VarChar(150)
+  stateShortName String?   @map("stateshortname") @db.VarChar(10)
+  lastUpdateBy   String?   @map("lastupdateby") @db.VarChar(700)
+  lastUpdateDate DateTime? @map("lastupdatedate") @db.Timestamp(6)
+
+  country Country @relation(fields: [countryId], references: [id])
+  cities  City[]
+
+  @@id([countryId, stateCode], map: "pk_state")
+  @@map("state")
+}
+
+model City {
+  countryId      String    @map("countryid") @db.VarChar(5)
+  stateCode      String    @map("statecode") @db.VarChar(5)
+  cityCode       String    @map("citycode") @db.VarChar(15)
+  cityName       String    @map("cityname") @db.VarChar(150)
+  cityShortName  String?   @map("cityshortname") @db.VarChar(150)
+  lastUpdateBy   String?   @map("lastupdateby") @db.VarChar(700)
+  lastUpdateDate DateTime? @map("lastupdatedate") @db.Timestamp(6)
+
+  state State @relation(fields: [countryId, stateCode], references: [countryId, stateCode])
+
+  @@id([countryId, stateCode, cityCode], map: "pk_city")
+  @@map("city")
+}

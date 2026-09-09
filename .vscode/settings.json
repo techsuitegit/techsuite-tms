@@ -1,0 +1,10 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "files.exclude": {
+    "**/s-desk - Copy": true
+  },
+  "search.exclude": {
+    "**/s-desk - Copy": true
+  }
+}
