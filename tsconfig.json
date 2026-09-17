@@ -19,9 +19,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"],
-      "@/app/config/*": ["./app/shared/config/*"],
-      "@/app/store/*": ["./app/ui-services/state/*"]
+      "@/*": ["./*"]
     }
   },
   "include": [
