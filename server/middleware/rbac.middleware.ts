@@ -1,6 +1,6 @@
 import type { JwtPayload } from "jsonwebtoken";
 
-import { MdmError } from "../mdm/mdm-error";
+import { MdmError } from "../errors/mdm-error";
 
 export type MdmPermission = "mdm.master.read" | "mdm.master.write" | "mdm.master.approve";
 

@@ -1,4 +1,4 @@
-import { MdmError } from "./mdm-error";
+import { MdmError } from "../errors/mdm-error";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,

@@ -1,6 +1,6 @@
 import { decode } from "jsonwebtoken";
 
-import { IamApiError, iamPostJson } from "./iam-client";
+import { IamApiError, type IamRepository } from "../repositories/iam.repository";
 
 const LOGIN_PATH = "/v1/jwt/login";
 
@@ -26,40 +26,44 @@ export type LoginSession = {
   };
 };
 
-export async function loginWithJwt(credentials: LoginCredentials): Promise<LoginSession> {
-  const login = credentials.login.trim();
-  const password = credentials.password;
-  const producttype = credentials.producttype.trim() || process.env.IAM_PRODUCT_TYPE?.trim() || "TMS";
-  const enviroment = credentials.enviroment.trim() || process.env.IAM_ENVIRONMENT?.trim() || "DEV";
+export class LoginService {
+  constructor(private readonly iam: IamRepository) {}
 
-  if (!login || !password) {
-    throw new IamApiError("Login and password are required.", 400);
+  async login(credentials: LoginCredentials): Promise<LoginSession> {
+    const login = credentials.login.trim();
+    const password = credentials.password;
+    const producttype = credentials.producttype.trim() || process.env.IAM_PRODUCT_TYPE?.trim() || "TMS";
+    const enviroment = credentials.enviroment.trim() || process.env.IAM_ENVIRONMENT?.trim() || "DEV";
+
+    if (!login || !password) {
+      throw new IamApiError("Login and password are required.", 400);
+    }
+
+    const { status, data } = await this.iam.postJson(LOGIN_PATH, {
+      producttype,
+      enviroment,
+      login,
+      password,
+    });
+
+    const root = asRecord(data);
+    if (isExplicitFailure(root) || status < 200 || status >= 300) {
+      throw new IamApiError(readMessage(root) ?? "Invalid login or password.", status >= 400 ? status : 401);
+    }
+
+    const accessToken = readToken(root);
+    if (!accessToken) {
+      throw new IamApiError(readMessage(root) ?? "Sign-in did not return an access token.", 502);
+    }
+
+    const claims = asRecord(decode(accessToken));
+
+    return {
+      accessToken,
+      refreshToken: readRefreshToken(root),
+      user: readUser(root, claims, login),
+    };
   }
-
-  const { status, data } = await iamPostJson(LOGIN_PATH, {
-    producttype,
-    enviroment,
-    login,
-    password,
-  });
-
-  const root = asRecord(data);
-  if (isExplicitFailure(root) || status < 200 || status >= 300) {
-    throw new IamApiError(readMessage(root) ?? "Invalid login or password.", status >= 400 ? status : 401);
-  }
-
-  const accessToken = readToken(root);
-  if (!accessToken) {
-    throw new IamApiError(readMessage(root) ?? "Sign-in did not return an access token.", 502);
-  }
-
-  const claims = asRecord(decode(accessToken));
-
-  return {
-    accessToken,
-    refreshToken: readRefreshToken(root),
-    user: readUser(root, claims, login),
-  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -124,11 +128,7 @@ function readRefreshToken(record: Record<string, unknown> | null) {
   return firstString(record, REFRESH_KEYS) ?? firstString(nestedData(record), REFRESH_KEYS);
 }
 
-function readUser(
-  record: Record<string, unknown> | null,
-  claims: Record<string, unknown> | null,
-  login: string,
-) {
+function readUser(record: Record<string, unknown> | null, claims: Record<string, unknown> | null, login: string) {
   const bodyUser =
     asRecord(getIgnoreCase(record, "user")) ??
     asRecord(getIgnoreCase(nestedData(record), "user")) ??

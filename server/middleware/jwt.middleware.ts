@@ -1,9 +1,14 @@
 import { decode, type JwtPayload } from "jsonwebtoken";
 import type { IncomingMessage } from "node:http";
 
-import { MdmError } from "../mdm/mdm-error";
+import { MdmError } from "../errors/mdm-error";
 
-export function readBearerClaims(req: IncomingMessage): JwtPayload {
+export type AuthedRequest = IncomingMessage & {
+  claims: JwtPayload;
+  actor: string;
+};
+
+export function jwtMiddleware(req: IncomingMessage): JwtPayload {
   const header = req.headers.authorization ?? "";
   const [scheme, token] = header.trim().split(/\s+/);
   if (scheme?.toLowerCase() !== "bearer" || !token) {
@@ -27,4 +32,12 @@ export function actorFromClaims(claims: JwtPayload) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "unknown";
+}
+
+export function attachJwt(req: IncomingMessage): AuthedRequest {
+  const claims = jwtMiddleware(req);
+  const authed = req as AuthedRequest;
+  authed.claims = claims;
+  authed.actor = actorFromClaims(claims);
+  return authed;
 }

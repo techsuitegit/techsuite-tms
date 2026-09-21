@@ -581,9 +581,13 @@ Suggested Postman order: **Health → Login → Create → invalid lat → List 
 
 ```text
 server/
-  index.ts                Node API (port 3001)
-  auth/                   IAM login BFF (POST /api/v1/jwt/login)
-  mdm/                    Shipping Point MDM
+  index.ts                composition root (DI + listen on 3001)
+  middleware/             JWT + RBAC
+  routes/                 login + shipping-point routes
+  controllers/
+  services/
+  repositories/
+  mdm/                    shipping-point types + validation
 app/
   api/v1/                 Next.js helpers (port 3000)
     auth/users/

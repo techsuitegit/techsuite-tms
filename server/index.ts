@@ -1,24 +1,30 @@
 import "dotenv/config";
 import { createServer } from "node:http";
 
-import { handleLogin } from "./auth/login-http";
+import { LoginController } from "./controllers/login.controller";
+import { ShippingPointController } from "./controllers/shipping-point.controller";
 import { createAppPool } from "./db/pool";
 import { sendJson } from "./http/io";
-import { createShippingPointRoutes, dispatch } from "./mdm/shipping-point-http";
-import { ShippingPointService } from "./mdm/shipping-point-service";
+import { dispatch } from "./http/router";
+import { IamRepository } from "./repositories/iam.repository";
+import { ShippingPointRepository } from "./repositories/shipping-point.repository";
+import { createLoginRoutes } from "./routes/login.routes";
+import { createShippingPointRoutes } from "./routes/shipping-point.routes";
+import { LoginService } from "./services/login.service";
+import { ShippingPointService } from "./services/shipping-point.service";
 
 const port = Number(process.env.API_PORT ?? 3001);
 const pool = createAppPool();
-const routes = [
-  {
-    method: "POST",
-    match: (path: string) => (path === "/api/v1/jwt/login" ? {} : null),
-    handle: async (req, res) => {
-      await handleLogin(req, res);
-    },
-  },
-  ...createShippingPointRoutes(new ShippingPointService(pool)),
-];
+
+const iamRepository = new IamRepository();
+const loginService = new LoginService(iamRepository);
+const loginController = new LoginController(loginService);
+
+const shippingPointRepository = new ShippingPointRepository(pool);
+const shippingPointService = new ShippingPointService(shippingPointRepository);
+const shippingPointController = new ShippingPointController(shippingPointService);
+
+const routes = [...createLoginRoutes(loginController), ...createShippingPointRoutes(shippingPointController)];
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
