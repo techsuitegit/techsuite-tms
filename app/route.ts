@@ -4,7 +4,6 @@ export function GET() {
   return NextResponse.json({
     name: "tms-web",
     apis: [
-      "POST /api/v1/jwt/login",
       "GET /api/v1/auth/users",
       "POST /api/v1/auth/users",
       "POST /api/v1/db/session",

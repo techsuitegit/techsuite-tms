@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["public", "branch"]
 }
 
 /// Applied manually in PostgreSQL. Do not run Prisma migrate/db push for this schema.
@@ -12,6 +13,7 @@ enum SapModule {
   PO
 
   @@map("sap_module")
+  @@schema("public")
 }
 
 enum UserType {
@@ -19,6 +21,7 @@ enum UserType {
   Client
 
   @@map("user_type")
+  @@schema("public")
 }
 
 enum SysLandscape {
@@ -27,6 +30,7 @@ enum SysLandscape {
   PRD
 
   @@map("sys_landscape")
+  @@schema("public")
 }
 
 enum ErpType {
@@ -34,6 +38,7 @@ enum ErpType {
   S4H
 
   @@map("erp_type")
+  @@schema("public")
 }
 
 enum ErpProductType {
@@ -41,6 +46,7 @@ enum ErpProductType {
   Cloud
 
   @@map("erp_product_type")
+  @@schema("public")
 }
 
 model Client {
@@ -72,6 +78,7 @@ model Client {
   users      User[]
 
   @@map("client")
+  @@schema("public")
 }
 
 model User {
@@ -96,6 +103,7 @@ model User {
   clientSystems UserClientSystem[]
 
   @@map("users")
+  @@schema("public")
 }
 
 model SapSystem {
@@ -116,6 +124,7 @@ model SapSystem {
 
   @@unique([clientId, landscape, erp, productType], map: "UQ_clientsystem")
   @@map("sapsystem")
+  @@schema("public")
 }
 
 model UserClientSystem {
@@ -132,6 +141,7 @@ model UserClientSystem {
 
   @@id([userId, sapSystemId], map: "pk_user_client_system")
   @@map("user_client_system")
+  @@schema("public")
 }
 
 model ModuleLabel {
@@ -142,6 +152,7 @@ model ModuleLabel {
 
   @@id([moduleId, sapSection, sapName], map: "pk_module_label")
   @@map("module_label")
+  @@schema("public")
 }
 
 model Country {
@@ -156,6 +167,7 @@ model Country {
   states State[]
 
   @@map("country")
+  @@schema("public")
 }
 
 model State {
@@ -171,6 +183,7 @@ model State {
 
   @@id([countryId, stateCode], map: "pk_state")
   @@map("state")
+  @@schema("public")
 }
 
 model City {
@@ -186,4 +199,95 @@ model City {
 
   @@id([countryId, stateCode, cityCode], map: "pk_city")
   @@map("city")
+  @@schema("public")
+}
+
+/// WBS 2.3 stub so shipping_point.division_id can FK. Full Division master is not this story.
+/// Applied in schema "branch" via sql/branch_shipping_point.sql. Do not Prisma migrate.
+model Division {
+  id        String    @id @default(uuid())
+  code      String
+  name      String
+  status    String    @default("PUBLISHED")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  shippingPoints ShippingPoint[]
+
+  @@map("division")
+  @@schema("branch")
+}
+
+/// WBS 2.5 Shipping Point. Table is branch.shipping_point, not public.
+model ShippingPoint {
+  id               String    @id @default(uuid())
+  code             String
+  name             String
+  divisionId       String    @map("division_id")
+  type             String
+  address          String
+  latitude         Decimal   @db.Decimal(9, 6)
+  longitude        Decimal   @db.Decimal(9, 6)
+  geofenceRadiusM  Int?      @map("geofence_radius_m")
+  openingHours     String?   @map("opening_hours")
+  loadingBays      Int?      @map("loading_bays")
+  loadingRateLpm   Decimal?  @map("loading_rate_lpm") @db.Decimal(12, 3)
+  midShiftReload   Boolean?  @map("mid_shift_reload")
+  productsStocked  String[]  @default([]) @map("products_stocked")
+  leadDispatcher   String?   @map("lead_dispatcher")
+  phone            String?
+  hazmatClass      String?   @map("hazmat_class")
+  permitNo         String?   @map("permit_no")
+  permitExpiry     DateTime? @map("permit_expiry") @db.Date
+  erpRef           String?   @map("erp_ref")
+  validFrom        DateTime  @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  reason           String
+  changeNote       String?   @map("change_note")
+  status           String
+  versionNo        Int       @default(1) @map("version_no")
+  externalId       String?   @map("external_id")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by")
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  division Division                 @relation(fields: [divisionId], references: [id])
+  versions ShippingPointVersion[]
+  audits   ShippingPointAudit[]
+
+  @@map("shipping_point")
+  @@schema("branch")
+}
+
+model ShippingPointVersion {
+  id              String   @id @default(uuid())
+  shippingPointId String   @map("shipping_point_id")
+  versionNo       Int      @map("version_no")
+  snapshot        Json
+  recordedAt      DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy      String?  @map("recorded_by")
+
+  shippingPoint ShippingPoint @relation(fields: [shippingPointId], references: [id])
+
+  @@unique([shippingPointId, versionNo], map: "shipping_point_version_udx")
+  @@map("shipping_point_version")
+  @@schema("branch")
+}
+
+model ShippingPointAudit {
+  id              String   @id @default(uuid())
+  shippingPointId String   @map("shipping_point_id")
+  action          String
+  actor           String?
+  note            String?
+  payload         Json?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  shippingPoint ShippingPoint @relation(fields: [shippingPointId], references: [id])
+
+  @@map("shipping_point_audit")
+  @@schema("branch")
 }

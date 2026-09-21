@@ -1,14 +1,30 @@
 import { decode } from "jsonwebtoken";
 
-import { IamApiError, iamPostJson } from "@/app/shared/http/iam-client";
-
-import type { AuthSessionUser, LoginCredentials, LoginSession } from "./login-types";
+import { IamApiError, iamPostJson } from "./iam-client";
 
 const LOGIN_PATH = "/v1/jwt/login";
 
 const TOKEN_KEYS = ["accesstoken", "access_token", "jwttoken", "jwt_token", "token", "jwt"];
 const REFRESH_KEYS = ["refreshtoken", "refresh_token"];
 const MESSAGE_KEYS = ["message", "errormessage", "error_message", "error", "title", "detail"];
+
+export type LoginCredentials = {
+  producttype: string;
+  enviroment: string;
+  login: string;
+  password: string;
+};
+
+export type LoginSession = {
+  accessToken: string;
+  refreshToken?: string;
+  user: {
+    fullName: string;
+    email: string;
+    role: string;
+    phoneNumber?: string;
+  };
+};
 
 export async function loginWithJwt(credentials: LoginCredentials): Promise<LoginSession> {
   const login = credentials.login.trim();
@@ -112,7 +128,7 @@ function readUser(
   record: Record<string, unknown> | null,
   claims: Record<string, unknown> | null,
   login: string,
-): AuthSessionUser {
+) {
   const bodyUser =
     asRecord(getIgnoreCase(record, "user")) ??
     asRecord(getIgnoreCase(nestedData(record), "user")) ??

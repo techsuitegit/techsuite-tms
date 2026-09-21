@@ -1,0 +1,307 @@
+{
+  "info": {
+    "_postman_id": "b7e2c91a-4d18-4f0e-9c31-tms-login-sp",
+    "name": "TMS — Login + Shipping Point",
+    "description": "How to use this collection\n\n1. Start the Node API: `npm run api` (http://localhost:3001)\n2. Run SQL once: `npm run api:sql` (creates txpoprdb.branch).\n3. Set collection variables `login` and `password` (your IAM user).\n4. Get a Division UUID:\n   `select id from branch.division where code = 'DIV-SEED-01';`\n   Paste it into `divisionId`.\n5. Run **Login** first. The test script saves `token`.\n6. Run Shipping Point requests in folder order.\n\nLogin and Shipping Point are the same Node process. Do not use the word Depot in name or address. Type CYLINDER_DEPOT is allowed.\nField `enviroment` is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "iamUrl", "value": "http://localhost:3001" },
+    { "key": "mdmUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "divisionId", "value": "PASTE-DIVISION-UUID-HERE" },
+    { "key": "shippingPointId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "1. Login (Node :3001)",
+      "item": [
+        {
+          "name": "Health — Node API",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/health",
+            "description": "No token. Confirms the Node API is up on port 3001 (login + Shipping Point)."
+          }
+        },
+        {
+          "name": "Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) {",
+                  "    pm.collectionVariables.set('token', token);",
+                  "    console.log('token saved');",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{iamUrl}}/api/v1/jwt/login",
+            "description": "Public. Forwards to hosted IAM.\n\nMust use enviroment (not environment).\n\nSuccess 200: { accessToken, refreshToken?, user }\nThe test script stores accessToken in {{token}} for later requests.\n\n400 Invalid Arguments — bad JSON or missing login/password.\n401 — IAM rejected credentials or wrong producttype/enviroment.\n502 — IAM unreachable."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Shipping Point (Node :3001)",
+      "item": [
+        {
+          "name": "01 Create (DRAFT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('shippingPointId', json.id);",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"SP-CHE-01\",\n  \"name\": \"Chennai Plant Shipping Point\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"BULK_PLANT\",\n  \"address\": \"Manali, Chennai\",\n  \"latitude\": 13.1667,\n  \"longitude\": 80.2667,\n  \"geofenceRadiusM\": 150,\n  \"openingHours\": \"06:00-22:00\",\n  \"loadingBays\": 4,\n  \"loadingRateLpm\": 1200.5,\n  \"midShiftReload\": true,\n  \"productsStocked\": [\"MS\", \"HSD\"],\n  \"leadDispatcher\": \"Kumar\",\n  \"phone\": \"+914412345678\",\n  \"hazmatClass\": \"3\",\n  \"permitNo\": \"TN-SP-2026-01\",\n  \"permitExpiry\": \"2027-03-31\",\n  \"erpRef\": \"ERP-CHE-01\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"New record\",\n  \"changeNote\": \"Initial create\",\n  \"externalId\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points",
+            "description": "Creates a DRAFT Shipping Point in txpoprdb.branch.\n\nRequired: code, name, divisionId (UUID of PUBLISHED division), type, address, latitude, longitude, validFrom (YYYY-MM-DD), reason.\n\ntype: BULK_PLANT | TERMINAL_RACK | YARD | CYLINDER_DEPOT\nreason: Correction | New record | Regulatory update | Commercial change\nlatitude -90..90, longitude -180..180\n\n201 { id, status: DRAFT, versionNo: 1 } — id is saved to {{shippingPointId}}."
+          }
+        },
+        {
+          "name": "01b Create — invalid latitude (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"SP-BAD-LAT\",\n  \"name\": \"Invalid Lat Check\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"BULK_PLANT\",\n  \"address\": \"Manali, Chennai\",\n  \"latitude\": 99,\n  \"longitude\": 80.2667,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points",
+            "description": "Expect 400 { code: VALIDATION, field: latitude, message: latitude must be between -90 and 90 }."
+          }
+        },
+        {
+          "name": "02 List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mdmUrl}}/api/v1/mdm/shipping-points?page=1&pageSize=20&sort=code",
+              "host": ["{{mdmUrl}}"],
+              "path": ["api", "v1", "mdm", "shipping-points"],
+              "query": [
+                { "key": "q", "value": "", "description": "Search code or name", "disabled": true },
+                { "key": "status", "value": "DRAFT", "description": "DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "sort", "value": "code", "description": "code | name | status | validFrom | updatedAt" }
+              ]
+            },
+            "description": "Paged list. Soft-deleted rows are hidden.\nResponse: { items, total, page }."
+          }
+        },
+        {
+          "name": "03 Get one",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}",
+            "description": "Current version plus parent Division labels. Updates {{versionNo}}."
+          }
+        },
+        {
+          "name": "04 Submit (AUTO publish)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}/submit",
+            "description": "DRAFT → PUBLISHED (approval route AUTO).\nreason is required. 200 { status: PUBLISHED }."
+          }
+        },
+        {
+          "name": "05 Lookups (published only)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/lookups/shipping-points",
+            "description": "Dropdown for Terminal / Tank / Vehicle. Returns only PUBLISHED rows: [{ id, code, name }]."
+          }
+        },
+        {
+          "name": "06 Patch (new version)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id = pm.collectionVariables.get('shippingPointId');",
+                  "const token = pm.collectionVariables.get('token');",
+                  "const mdmUrl = pm.collectionVariables.get('mdmUrl');",
+                  "if (!id || !token) { return; }",
+                  "pm.sendRequest({",
+                  "  url: mdmUrl + '/api/v1/mdm/shipping-points/' + id,",
+                  "  method: 'GET',",
+                  "  header: { Authorization: 'Bearer ' + token }",
+                  "}, function (err, res) {",
+                  "  if (!err && res.code === 200) {",
+                  "    const json = res.json();",
+                  "    if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "  }",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"SP-CHE-01\",\n  \"name\": \"Chennai Plant Shipping Point\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"BULK_PLANT\",\n  \"address\": \"Manali, Chennai\",\n  \"latitude\": 13.17,\n  \"longitude\": 80.27,\n  \"geofenceRadiusM\": 200,\n  \"openingHours\": \"06:00-22:00\",\n  \"loadingBays\": 5,\n  \"loadingRateLpm\": 1300,\n  \"midShiftReload\": false,\n  \"productsStocked\": [\"MS\"],\n  \"leadDispatcher\": \"Kumar\",\n  \"phone\": \"+914412345678\",\n  \"hazmatClass\": \"3\",\n  \"permitNo\": \"TN-SP-2026-01\",\n  \"permitExpiry\": \"2027-03-31\",\n  \"erpRef\": \"ERP-CHE-01\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Updated coordinates\",\n  \"externalId\": null,\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}",
+            "description": "Full body required, including versionNo (optimistic lock).\nPre-request GET refreshes versionNo. Wrong version → 409 STALE_VERSION.\nAUTO master: published row is amended and stays PUBLISHED."
+          }
+        },
+        {
+          "name": "07 Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}/versions",
+            "description": "Append-only history. { versions: [{ versionNo, snapshot, recordedAt, recordedBy }] }."
+          }
+        },
+        {
+          "name": "08 Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}/audit",
+            "description": "Audit ledger. { events: [{ action, actor, note, payload, createdAt }] }."
+          }
+        },
+        {
+          "name": "09 Export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/export",
+            "description": "CSV of PUBLISHED + DRAFT rows. Save the response as a file."
+          }
+        },
+        {
+          "name": "10 Import JSON rows",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"SP-CHE-02\",\n    \"name\": \"Chennai Rack Shipping Point\",\n    \"divisionId\": \"{{divisionId}}\",\n    \"type\": \"TERMINAL_RACK\",\n    \"address\": \"Ennore, Chennai\",\n    \"latitude\": 13.2,\n    \"longitude\": 80.32,\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/import",
+            "description": "Row-level import (not all-or-nothing).\nJSON array or { rows: [] } or Content-Type text/csv.\nXLSX is not supported.\n200 { accepted: [{ id, code }], rejected: [{ row, message, field }] }."
+          }
+        },
+        {
+          "name": "11 Approve (PENDING only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}/approve",
+            "description": "Only PENDING → PUBLISHED. This master is AUTO, so submit already published the row. Expect 409 CONFLICT if status is not PENDING."
+          }
+        },
+        {
+          "name": "12 Reject (PENDING only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Missing permit details\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}/reject",
+            "description": "note is mandatory. Only PENDING → REJECTED. AUTO masters usually return 409 after submit."
+          }
+        }
+      ]
+    }
+  ]
+}
