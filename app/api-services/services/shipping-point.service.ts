@@ -1,6 +1,6 @@
 import { MdmError } from "../errors/mdm-error";
-import type { ShippingPointInput } from "../mdm/shipping-point-types";
-import { parseCreateBody } from "../mdm/shipping-point-validation";
+import type { ShippingPointInput } from "./shipping-point-types";
+import { parseCreateBody } from "./shipping-point-validation";
 import {
   mapDbError,
   type ShippingPointRepository,

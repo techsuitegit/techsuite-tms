@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { MdmError } from "../errors/mdm-error";
-import { readJsonBody, sendJson } from "../http/io";
 import { IamApiError } from "../repositories/iam.repository";
-import type { LoginService } from "../services/login.service";
+import { MdmError } from "../errors/mdm-error";
+import type { LoginService } from "../services/login-service";
+import { readJsonBody, sendJson } from "../../../server/http/io";
 
 export class LoginController {
   constructor(private readonly loginService: LoginService) {}

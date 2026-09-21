@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { MdmError } from "../errors/mdm-error";
+import { MdmError } from "@/app/api-services/errors/mdm-error";
 
 export function sendJson(res: ServerResponse, status: number, body: unknown) {
   const payload = JSON.stringify(body);

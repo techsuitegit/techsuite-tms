@@ -581,20 +581,22 @@ Suggested Postman order: **Health → Login → Create → invalid lat → List 
 
 ```text
 server/
-  index.ts                composition root (DI + listen on 3001)
-  middleware/             JWT + RBAC
-  routes/                 login + shipping-point routes
-  controllers/
-  services/
-  repositories/
-  mdm/                    shipping-point types + validation
+  index.ts                composition root (class DI + listen on 3001)
+  http/                   HTTP router + request/response helpers
+  db/                     Postgres pool
 app/
   api/v1/                 Next.js helpers (port 3000)
     auth/users/
     db/session/
     crypto/encrypt/
     crypto/decrypt/
-  api-services/           users SQL, tenant pool, crypto
+  api-services/
+    repositories/         IAM + shipping-point SQL
+    services/             login + shipping-point business logic
+    controllers/          HTTP adapters
+    routes/               URL mapping
+    jwt/                  JWT verify + RBAC
+    auth/                 users-service (Next.js)
   layout.tsx
   route.ts                GET /
 prisma/schema.prisma      TMS table reference (do not migrate)

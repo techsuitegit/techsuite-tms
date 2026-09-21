@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { MdmError } from "../errors/mdm-error";
-import { parseCsv, readJsonBody, readRaw, sendJson, sendText } from "../http/io";
-import type { AuthedRequest } from "../middleware/jwt.middleware";
-import { parseCreateBody, parseStatusFilter, parseUpdateBody } from "../mdm/shipping-point-validation";
+import type { AuthedRequest } from "../jwt/jwt.middleware";
+import { parseCreateBody, parseStatusFilter, parseUpdateBody } from "../services/shipping-point-validation";
 import type { ShippingPointService } from "../services/shipping-point.service";
+import { parseCsv, readJsonBody, readRaw, sendJson, sendText } from "../../../server/http/io";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -36,11 +36,11 @@ export class ShippingPointController {
     sendJson(res, 201, await this.shippingPointService.create(input, req.actor));
   }
 
-  async versions(req: AuthedRequest, res: ServerResponse, params: Record<string, string>) {
+  async versions(_req: AuthedRequest, res: ServerResponse, params: Record<string, string>) {
     sendJson(res, 200, await this.shippingPointService.versions(requireId(params.id)));
   }
 
-  async auditLog(req: AuthedRequest, res: ServerResponse, params: Record<string, string>) {
+  async auditLog(_req: AuthedRequest, res: ServerResponse, params: Record<string, string>) {
     sendJson(res, 200, await this.shippingPointService.auditLog(requireId(params.id)));
   }
 
@@ -62,7 +62,7 @@ export class ShippingPointController {
     sendJson(res, 200, await this.shippingPointService.reject(requireId(params.id), note, req.actor));
   }
 
-  async getById(req: AuthedRequest, res: ServerResponse, params: Record<string, string>) {
+  async getById(_req: AuthedRequest, res: ServerResponse, params: Record<string, string>) {
     sendJson(res, 200, await this.shippingPointService.getById(requireId(params.id)));
   }
 

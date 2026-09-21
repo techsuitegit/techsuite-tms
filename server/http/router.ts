@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { MdmError } from "../errors/mdm-error";
-import { attachJwt } from "../middleware/jwt.middleware";
-import { requirePermission, type MdmPermission } from "../middleware/rbac.middleware";
+import { MdmError } from "@/app/api-services/errors/mdm-error";
+import type { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
+import type { MdmPermission, RbacMiddleware } from "@/app/api-services/jwt/rbac.middleware";
 import { sendError } from "./io";
 
 export type RouteHandler = (
@@ -20,35 +20,42 @@ export type Route = {
   handle: RouteHandler;
 };
 
-export async function dispatch(routes: Route[], req: IncomingMessage, res: ServerResponse) {
-  try {
-    const host = req.headers.host ?? "localhost";
-    const url = new URL(req.url ?? "/", `http://${host}`);
-    const method = (req.method ?? "GET").toUpperCase();
-    if (method === "OPTIONS") {
-      res.writeHead(204, corsHeaders());
-      res.end();
-      return;
-    }
+export class HttpRouter {
+  constructor(
+    private readonly jwt: JwtMiddleware,
+    private readonly rbac: RbacMiddleware,
+  ) {}
 
-    const route = routes.find((item) => item.method === method && item.match(url.pathname));
-    if (!route) {
-      const allowed = routes.some((item) => item.match(url.pathname));
-      if (allowed) throw new MdmError("METHOD_NOT_ALLOWED", "Method not allowed", 405);
-      throw new MdmError("NOT_FOUND", "Not found", 404);
-    }
+  async dispatch(routes: Route[], req: IncomingMessage, res: ServerResponse) {
+    try {
+      const host = req.headers.host ?? "localhost";
+      const url = new URL(req.url ?? "/", `http://${host}`);
+      const method = (req.method ?? "GET").toUpperCase();
+      if (method === "OPTIONS") {
+        res.writeHead(204, corsHeaders());
+        res.end();
+        return;
+      }
 
-    if (route.auth) {
-      const authed = attachJwt(req);
-      if (route.permission) requirePermission(authed.claims, route.permission);
-    }
+      const route = routes.find((item) => item.method === method && item.match(url.pathname));
+      if (!route) {
+        const allowed = routes.some((item) => item.match(url.pathname));
+        if (allowed) throw new MdmError("METHOD_NOT_ALLOWED", "Method not allowed", 405);
+        throw new MdmError("NOT_FOUND", "Not found", 404);
+      }
 
-    const params = route.match(url.pathname) ?? {};
-    Object.entries(corsHeaders()).forEach(([key, value]) => res.setHeader(key, value));
-    await route.handle(req, res, params, url);
-  } catch (error) {
-    Object.entries(corsHeaders()).forEach(([key, value]) => res.setHeader(key, value));
-    sendError(res, error);
+      if (route.auth) {
+        const authed = this.jwt.attach(req);
+        if (route.permission) this.rbac.requirePermission(authed.claims, route.permission);
+      }
+
+      const params = route.match(url.pathname) ?? {};
+      Object.entries(corsHeaders()).forEach(([key, value]) => res.setHeader(key, value));
+      await route.handle(req, res, params, url);
+    } catch (error) {
+      Object.entries(corsHeaders()).forEach(([key, value]) => res.setHeader(key, value));
+      sendError(res, error);
+    }
   }
 }
 

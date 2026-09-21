@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 
 import { MdmError } from "../errors/mdm-error";
-import type { ShippingPointInput } from "../mdm/shipping-point-types";
+import type { ShippingPointInput } from "../services/shipping-point-types";
 
 const SELECT_LIST = `
   sp.id, sp.code, sp.name, sp.division_id as "divisionId", d.code as "divisionCode", d.name as "divisionName",
