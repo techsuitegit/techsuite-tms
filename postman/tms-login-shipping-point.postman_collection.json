@@ -19,6 +19,7 @@
     { "key": "enviroment", "value": "DEV" },
     { "key": "divisionId", "value": "PASTE-DIVISION-UUID-HERE" },
     { "key": "shippingPointId", "value": "" },
+    { "key": "vendorId", "value": "" },
     { "key": "versionNo", "value": "1" }
   ],
   "item": [
@@ -299,6 +300,110 @@
             },
             "url": "{{mdmUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}/reject",
             "description": "note is mandatory. Only PENDING → REJECTED. AUTO masters usually return 409 after submit."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Vendor (Node :3001)",
+      "item": [
+        {
+          "name": "01 SAP upsert (PUBLISHED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('vendorId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"V-HPCL\",\n  \"code\": \"300012\",\n  \"name\": \"HPCL\",\n  \"type\": \"SUPPLIER\",\n  \"active\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors/sap-upsert",
+            "description": "SAP stub upsert. Idempotent on externalId. AUTO publishes. 400 if externalId is missing."
+          }
+        },
+        {
+          "name": "02 Create from UI (expect 405)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"300099\",\n  \"name\": \"Should Fail\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors",
+            "description": "TMS create is forbidden. Expect 405 METHOD_NOT_ALLOWED."
+          }
+        },
+        {
+          "name": "03 List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors?page=1&pageSize=20&sort=code",
+            "description": "Paged list. Optional query: q, status, type, page, pageSize, sort."
+          }
+        },
+        {
+          "name": "04 Lookups SUPPLIER (hides DEVICE)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/lookups/vendors?type=SUPPLIER",
+            "description": "Published + active only. type=SUPPLIER hides Otodata DEVICE."
+          }
+        },
+        {
+          "name": "05 Get one",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors/{{vendorId}}",
+            "description": "Current vendor version."
+          }
+        },
+        {
+          "name": "06 Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors/{{vendorId}}/versions"
+          }
+        },
+        {
+          "name": "07 Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors/{{vendorId}}/audit"
+          }
+        },
+        {
+          "name": "08 Patch (expect 405)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Should Fail\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{mdmUrl}}/api/v1/mdm/vendors/{{vendorId}}",
+            "description": "TMS amend is forbidden. Expect 405 METHOD_NOT_ALLOWED."
           }
         }
       ]

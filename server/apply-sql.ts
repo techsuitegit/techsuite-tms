@@ -24,12 +24,14 @@ async function main() {
   const database = appDatabaseName();
   await ensureDatabase(database);
 
-  const file = path.join(process.cwd(), "sql", "branch_shipping_point.sql");
-  const sql = await readFile(file, "utf8");
+  const files = ["branch_shipping_point.sql", "branch_vendor.sql"];
   const pool = createAppPool();
   try {
-    await pool.query(sql);
-    process.stdout.write(`Applied sql/branch_shipping_point.sql to ${database}.branch\n`);
+    for (const name of files) {
+      const sql = await readFile(path.join(process.cwd(), "sql", name), "utf8");
+      await pool.query(sql);
+      process.stdout.write(`Applied sql/${name} to ${database}.branch\n`);
+    }
   } finally {
     await pool.end();
   }

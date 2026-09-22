@@ -291,3 +291,61 @@ model ShippingPointAudit {
   @@map("shipping_point_audit")
   @@schema("branch")
 }
+
+/// WBS 2.7 Vendor / Supplier (SAP sync). Table is branch.vendor, not public.
+/// Applied via sql/branch_vendor.sql. Do not Prisma migrate.
+model Vendor {
+  id         String    @id @default(uuid())
+  code       String
+  name       String
+  type       String
+  active     Boolean   @default(true)
+  validFrom  DateTime  @map("valid_from") @db.Date
+  validTo    DateTime? @map("valid_to") @db.Date
+  reason     String
+  changeNote String?   @map("change_note")
+  status     String
+  versionNo  Int       @default(1) @map("version_no")
+  externalId String?   @map("external_id")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?   @map("created_by")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy  String?   @map("updated_by")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions VendorVersion[]
+  audits   VendorAudit[]
+
+  @@map("vendor")
+  @@schema("branch")
+}
+
+model VendorVersion {
+  id         String   @id @default(uuid())
+  vendorId   String   @map("vendor_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@unique([vendorId, versionNo], map: "vendor_version_udx")
+  @@map("vendor_version")
+  @@schema("branch")
+}
+
+model VendorAudit {
+  id        String   @id @default(uuid())
+  vendorId  String   @map("vendor_id")
+  action    String
+  actor     String?
+  note      String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@map("vendor_audit")
+  @@schema("branch")
+}
