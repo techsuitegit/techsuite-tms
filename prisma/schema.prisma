@@ -440,3 +440,63 @@ model TerminalAudit {
   @@map("terminal_audit")
   @@schema("branch")
 }
+
+/// WBS 2.6 UOM. AUTO publish. Applied via sql/branch_uom.sql / prisma migrate. Do not expose a UI.
+model Uom {
+  id            String    @id @default(uuid())
+  code          String
+  name          String
+  isBase        Boolean   @default(false) @map("is_base")
+  factorToBase  Decimal   @map("factor_to_base") @db.Decimal(18, 8)
+  decimalPlaces Int       @map("decimal_places")
+  rounding      String
+  dimension     String?
+  validFrom     DateTime  @map("valid_from") @db.Date
+  validTo       DateTime? @map("valid_to") @db.Date
+  reason        String
+  changeNote    String?   @map("change_note")
+  status        String
+  versionNo     Int       @default(1) @map("version_no")
+  externalId    String?   @map("external_id")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?   @map("created_by")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy     String?   @map("updated_by")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions UomVersion[]
+  audits   UomAudit[]
+
+  @@map("uom")
+  @@schema("branch")
+}
+
+model UomVersion {
+  id         String   @id @default(uuid())
+  uomId      String   @map("uom_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  uom Uom @relation(fields: [uomId], references: [id])
+
+  @@unique([uomId, versionNo], map: "uom_version_udx")
+  @@map("uom_version")
+  @@schema("branch")
+}
+
+model UomAudit {
+  id        String   @id @default(uuid())
+  uomId     String   @map("uom_id")
+  action    String
+  actor     String?
+  note      String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  uom Uom @relation(fields: [uomId], references: [id])
+
+  @@map("uom_audit")
+  @@schema("branch")
+}

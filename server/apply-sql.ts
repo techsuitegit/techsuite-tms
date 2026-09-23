@@ -33,6 +33,7 @@ async function main() {
     "branch_shipping_point.sql",
     "branch_vendor.sql",
     "branch_terminal.sql",
+    "branch_uom.sql",
   ];
   const pool = createAppPool();
   try {

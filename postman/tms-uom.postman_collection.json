@@ -1,0 +1,235 @@
+{
+  "info": {
+    "_postman_id": "c8f3d02b-5e29-4a1f-8d42-tms-uom",
+    "name": "TMS — UOM (WBS 2.6)",
+    "description": "Unit of Measurement APIs on the Node process (port 3001).\n\n1. Start: `npm run api`\n2. Schema + seeds: `npm run api:sql` (creates branch.uom and L / KG / M3 / GAL / EA).\n3. Set collection variables `login` and `password`.\n4. Run **Login** first. The test script saves `token`.\n5. No trailing slash on URLs.\n\nThis collection omits POST /api/v1/mdm/uom and PATCH /api/v1/mdm/uom/:id.\nThe only write here is sap-upsert. AUTO publishes.\ncode: 1-10 uppercase letters or digits\nrounding: HALF_UP | DOWN | COMMERCIAL\ndimension: VOLUME | MASS | COUNT | TIME (optional)\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "uomId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. Expect { ok: true, name: tms-api }."
+          }
+        },
+        {
+          "name": "Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) {",
+                  "    pm.collectionVariables.set('token', token);",
+                  "    console.log('token saved');",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. SAP upsert (only write)",
+      "item": [
+        {
+          "name": "01 SAP upsert — update seeded L",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('uomId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"L\",\n  \"code\": \"L\",\n  \"name\": \"Litre\",\n  \"isBase\": true,\n  \"factorToBase\": 1,\n  \"decimalPlaces\": 3,\n  \"rounding\": \"HALF_UP\",\n  \"dimension\": \"VOLUME\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/uom/sap-upsert",
+            "description": "externalId required. Idempotent on externalId. AUTO publishes.\nSeeded L already has externalId L, so this updates that row.\n200 { id, externalId, status: PUBLISHED }.\nSaves id to {{uomId}}."
+          }
+        },
+        {
+          "name": "02 SAP upsert — full optional fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('uomId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"L\",\n  \"code\": \"L\",\n  \"name\": \"Litre\",\n  \"isBase\": true,\n  \"factorToBase\": 1,\n  \"decimalPlaces\": 3,\n  \"rounding\": \"HALF_UP\",\n  \"dimension\": \"VOLUME\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"Correction\",\n  \"changeNote\": \"SAP stub sync\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/uom/sap-upsert",
+            "description": "Same externalId updates the existing row. Unknown JSON keys return 400."
+          }
+        },
+        {
+          "name": "03 SAP upsert — new code (QT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('uomId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"UOM-QT\",\n  \"code\": \"QT\",\n  \"name\": \"Quart\",\n  \"isBase\": false,\n  \"factorToBase\": 0.94635295,\n  \"decimalPlaces\": 3,\n  \"rounding\": \"HALF_UP\",\n  \"dimension\": \"VOLUME\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/uom/sap-upsert",
+            "description": "New externalId inserts a row. Repeat is idempotent.\n200 { id, externalId, status: PUBLISHED }."
+          }
+        },
+        {
+          "name": "04 SAP upsert — missing SAP key (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"L\",\n  \"name\": \"Litre\",\n  \"isBase\": true,\n  \"factorToBase\": 1,\n  \"decimalPlaces\": 3,\n  \"rounding\": \"HALF_UP\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/uom/sap-upsert",
+            "description": "Expect 400 { code: VALIDATION, message: missing SAP key, field: externalId }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Read",
+      "item": [
+        {
+          "name": "05 List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/mdm/uom?page=1&pageSize=20&sort=code",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "mdm", "uom"],
+              "query": [
+                { "key": "q", "value": "", "description": "Search code or name", "disabled": true },
+                { "key": "status", "value": "PUBLISHED", "description": "DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "sort", "value": "code", "description": "code | name | status | validFrom | updatedAt" }
+              ]
+            },
+            "description": "No body. 200 { items, total, page }. Seeds L, KG, M3, GAL, EA appear after api:sql."
+          }
+        },
+        {
+          "name": "06 Get one",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/uom/{{uomId}}",
+            "description": "No body. 200 current row. 404 if id is missing.\nRun a sap-upsert first so {{uomId}} is set."
+          }
+        },
+        {
+          "name": "07 Lookups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/uom",
+            "description": "Published only. 200 [{ id, code, name }]."
+          }
+        },
+        {
+          "name": "08 Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/uom/{{uomId}}/versions",
+            "description": "No body. 200 { versions: [{ versionNo, snapshot, recordedAt, recordedBy }] }."
+          }
+        },
+        {
+          "name": "09 Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/uom/{{uomId}}/audit",
+            "description": "No body. 200 { events: [{ action, actor, note, payload, createdAt }] }."
+          }
+        }
+      ]
+    }
+  ]
+}

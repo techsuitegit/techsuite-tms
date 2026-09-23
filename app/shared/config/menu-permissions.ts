@@ -16,7 +16,6 @@ export const MASTER_MENU_ITEMS: MenuChildItem[] = [
   { key: "CostCenter", href: "/masters/cost-center", label: "Cost Center" },
   { key: "StorageTank", href: "/masters/storage-tank", label: "Storage Tank" },
   { key: "Material", href: "/masters/material", label: "Material" },
-  { key: "UnitOfMeasurement", href: "/masters/unit-of-measurement", label: "Unit of Measurement" },
   { key: "Truck", href: "/masters/truck", label: "Truck" },
   { key: "Cylinder", href: "/masters/cylinder", label: "Cylinder" },
   { key: "Telemetry", href: "/masters/telemetry", label: "Telemetry" },
