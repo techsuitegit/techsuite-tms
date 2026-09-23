@@ -1,0 +1,218 @@
+{
+  "info": {
+    "_postman_id": "e1a5f24d-7c41-4d31-8b64-tms-geo",
+    "name": "TMS — Country / State / Pincode",
+    "description": "Public geo master on Node :3001.\n\n1. `npm run api` and `npm run api:sql` (creates public.country/state/city/pincode).\n2. Run Login first. Test script saves `token`.\n3. No trailing slash.\n\nList: GET lookups (read).\nCreate: POST countries / states / pincodes (write).\nstateCode is the stored code (e.g. 33 for Tamil Nadu), not TN.\nIndia pincode must be 6 digits.\nDuplicate PK → 409 CONFLICT. Missing parent → 400 PARENT_NOT_FOUND.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "countryId", "value": "IND" },
+    { "key": "stateCode", "value": "33" },
+    { "key": "cityCode", "value": "TN00002420" },
+    { "key": "pincode", "value": "600001" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. Expect { ok: true, name: tms-api }."
+          }
+        },
+        {
+          "name": "Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. List lookups",
+      "item": [
+        {
+          "name": "GET countries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/countries",
+            "description": "All countries. No query."
+          }
+        },
+        {
+          "name": "GET states",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/states?countryId={{countryId}}",
+            "description": "countryId required."
+          }
+        },
+        {
+          "name": "GET cities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/cities?countryId={{countryId}}&stateCode={{stateCode}}",
+            "description": "countryId + stateCode required."
+          }
+        },
+        {
+          "name": "GET pincodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/pincodes?countryId={{countryId}}&stateCode={{stateCode}}&cityCode={{cityCode}}",
+            "description": "countryId + stateCode required. cityCode optional filter."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Create",
+      "item": [
+        {
+          "name": "POST country",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('countryId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"SGP\",\n  \"name\": \"Singapore\",\n  \"shortName\": \"SG\",\n  \"telephoneCode\": \"65\",\n  \"seqNo\": 187\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/countries",
+            "description": "id is ISO-3 (max 5). Duplicate id → 409. SGP already seeded — expect 409 unless you change id."
+          }
+        },
+        {
+          "name": "POST country — new id",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"XXX\",\n  \"name\": \"Test Country\",\n  \"shortName\": \"XX\",\n  \"telephoneCode\": \"999\",\n  \"seqNo\": 999\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/countries",
+            "description": "Use a unused id. Expect 201."
+          }
+        },
+        {
+          "name": "POST state",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.countryId) pm.collectionVariables.set('countryId', json.countryId);",
+                  "  if (json.stateCode) pm.collectionVariables.set('stateCode', json.stateCode);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"countryId\": \"IND\",\n  \"stateCode\": \"38\",\n  \"stateName\": \"Ladakh\",\n  \"stateShortName\": \"LA\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/states",
+            "description": "countryId must exist. Duplicate (countryId, stateCode) → 409."
+          }
+        },
+        {
+          "name": "POST pincode",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.pincode) pm.collectionVariables.set('pincode', json.pincode);",
+                  "  if (json.cityCode) pm.collectionVariables.set('cityCode', json.cityCode);",
+                  "  if (json.stateCode) pm.collectionVariables.set('stateCode', json.stateCode);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"countryId\": \"IND\",\n  \"stateCode\": \"33\",\n  \"cityCode\": \"TN00002420\",\n  \"pincode\": \"600001\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pincodes",
+            "description": "City must exist. IND pincode must be 6 digits. Duplicate → 409."
+          }
+        }
+      ]
+    }
+  ]
+}

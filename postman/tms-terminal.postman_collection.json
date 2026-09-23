@@ -1,0 +1,475 @@
+{
+  "info": {
+    "_postman_id": "d9e4e13c-6f30-4b20-9e53-tms-terminal",
+    "name": "TMS — Terminal (WBS 2.8)",
+    "description": "Terminal master on Node :3001. Approval route SAFETY: create DRAFT → submit PENDING → approve PUBLISHED.\n\n1. `npm run api` and `npm run api:sql` (public.country/state/city/pincode + branch.terminal).\n2. Set `login` / `password`. Run Login first.\n3. Need a PUBLISHED `shippingPointId`. THIRD_PARTY also needs a PUBLISHED Vendor `type=SUPPLIER` in `vendorId`.\n4. Load geo lookups (or create country/state/pincode), then create Terminal.\n5. No trailing slash.\n\nownership: OWN | THIRD_PARTY\nOWN + vendorId → 400. THIRD_PARTY without vendorId → 400.\nSecond isParent=true on the same SP unsets the first.\nIndia pincode must be 6 digits.\nstateCode is the stored code (33 for Tamil Nadu), not TN.\nreason: Correction | New record | Regulatory update | Commercial change",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "shippingPointId", "value": "PASTE-PUBLISHED-SP-UUID" },
+    { "key": "vendorId", "value": "PASTE-PUBLISHED-SUPPLIER-UUID" },
+    { "key": "terminalId", "value": "" },
+    { "key": "versionNo", "value": "1" },
+    { "key": "countryId", "value": "IND" },
+    { "key": "stateCode", "value": "33" },
+    { "key": "cityCode", "value": "TN00002420" },
+    { "key": "pincode", "value": "600001" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. Expect { ok: true, name: tms-api }."
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "0b. Geo lookups",
+      "item": [
+        {
+          "name": "GET countries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/countries",
+            "description": "All countries. No query."
+          }
+        },
+        {
+          "name": "GET states",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/states?countryId={{countryId}}",
+            "description": "countryId required."
+          }
+        },
+        {
+          "name": "GET cities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/cities?countryId={{countryId}}&stateCode={{stateCode}}",
+            "description": "countryId + stateCode required. stateCode is 33 for Tamil Nadu, not TN."
+          }
+        },
+        {
+          "name": "GET pincodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/pincodes?countryId={{countryId}}&stateCode={{stateCode}}&cityCode={{cityCode}}",
+            "description": "countryId + stateCode required. cityCode optional filter."
+          }
+        }
+      ]
+    },
+    {
+      "name": "0c. Geo create",
+      "item": [
+        {
+          "name": "POST country",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('countryId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"XXX\",\n  \"name\": \"Test Country\",\n  \"shortName\": \"XX\",\n  \"telephoneCode\": \"999\",\n  \"seqNo\": 999\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/countries",
+            "description": "id max 5 chars. Seeded ids (IND, SGP, …) return 409 CONFLICT."
+          }
+        },
+        {
+          "name": "POST state",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.countryId) pm.collectionVariables.set('countryId', json.countryId);",
+                  "  if (json.stateCode) pm.collectionVariables.set('stateCode', json.stateCode);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"countryId\": \"IND\",\n  \"stateCode\": \"38\",\n  \"stateName\": \"Ladakh\",\n  \"stateShortName\": \"LA\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/states",
+            "description": "countryId must exist. Duplicate (countryId, stateCode) → 409."
+          }
+        },
+        {
+          "name": "POST pincode",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.pincode) pm.collectionVariables.set('pincode', json.pincode);",
+                  "  if (json.cityCode) pm.collectionVariables.set('cityCode', json.cityCode);",
+                  "  if (json.stateCode) pm.collectionVariables.set('stateCode', json.stateCode);",
+                  "  if (json.countryId) pm.collectionVariables.set('countryId', json.countryId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"countryId\": \"IND\",\n  \"stateCode\": \"33\",\n  \"cityCode\": \"TN00002420\",\n  \"pincode\": \"600001\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pincodes",
+            "description": "City must exist. IND pincode must be 6 digits. Duplicate → 409."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Create",
+      "item": [
+        {
+          "name": "01 Create OWN parent (DRAFT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('terminalId', json.id);",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TRM-CHE-01\",\n  \"name\": \"Manali Loading Terminal\",\n  \"ownership\": \"OWN\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"vendorId\": null,\n  \"isParent\": true,\n  \"address\": \"Manali rack\",\n  \"countryId\": \"{{countryId}}\",\n  \"stateCode\": \"{{stateCode}}\",\n  \"cityCode\": \"{{cityCode}}\",\n  \"pincode\": \"{{pincode}}\",\n  \"latitude\": 13.1667,\n  \"longitude\": 80.2667,\n  \"productsAvailable\": [\"MS\", \"HSD\"],\n  \"rackPriceRef\": \"RACK-CHE-01\",\n  \"freightToSp\": 12.5,\n  \"hazmatClass\": \"3\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"New record\",\n  \"changeNote\": \"Initial create\",\n  \"externalId\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals",
+            "description": "Required: code, name, ownership, shippingPointId, address, countryId, stateCode, cityCode, pincode, validFrom, reason.\nOWN: vendorId must be null. Saves {{terminalId}} and {{versionNo}}."
+          }
+        },
+        {
+          "name": "01b Create THIRD_PARTY (DRAFT)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TRM-CHE-03P\",\n  \"name\": \"HPCL Third Party Rack\",\n  \"ownership\": \"THIRD_PARTY\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"isParent\": false,\n  \"address\": \"HPCL rack\",\n  \"countryId\": \"{{countryId}}\",\n  \"stateCode\": \"{{stateCode}}\",\n  \"cityCode\": \"{{cityCode}}\",\n  \"pincode\": \"{{pincode}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals",
+            "description": "vendorId required. Vendor must be PUBLISHED SUPPLIER."
+          }
+        },
+        {
+          "name": "01c Create OWN with vendorId (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TRM-BAD-OWN\",\n  \"name\": \"Invalid OWN\",\n  \"ownership\": \"OWN\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"isParent\": false,\n  \"address\": \"Bad\",\n  \"countryId\": \"IND\",\n  \"stateCode\": \"33\",\n  \"cityCode\": \"TN00002420\",\n  \"pincode\": \"600001\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals",
+            "description": "Expect 400 field vendorId."
+          }
+        },
+        {
+          "name": "01d Create bad India pincode (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TRM-BAD-PIN\",\n  \"name\": \"Bad pincode\",\n  \"ownership\": \"OWN\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"address\": \"Manali\",\n  \"countryId\": \"IND\",\n  \"stateCode\": \"33\",\n  \"cityCode\": \"TN00002420\",\n  \"pincode\": \"6000\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals",
+            "description": "Expect 400 field pincode — must be 6 digits for IND."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Read",
+      "item": [
+        {
+          "name": "02 List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/mdm/terminals?page=1&pageSize=20&sort=code",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "mdm", "terminals"],
+              "query": [
+                { "key": "q", "value": "", "description": "Search code or name", "disabled": true },
+                { "key": "status", "value": "DRAFT", "description": "DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "sort", "value": "code" }
+              ]
+            },
+            "description": "Paged list. Soft-deleted hidden. Response { items, total, page }."
+          }
+        },
+        {
+          "name": "03 Get one",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}",
+            "description": "Current row plus geo names. Updates {{versionNo}}."
+          }
+        },
+        {
+          "name": "04 Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}/versions"
+          }
+        },
+        {
+          "name": "05 Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}/audit"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Update",
+      "item": [
+        {
+          "name": "06 PATCH (same as create + versionNo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TRM-CHE-01\",\n  \"name\": \"Manali Loading Terminal\",\n  \"ownership\": \"OWN\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"vendorId\": null,\n  \"isParent\": true,\n  \"address\": \"Manali rack updated\",\n  \"countryId\": \"{{countryId}}\",\n  \"stateCode\": \"{{stateCode}}\",\n  \"cityCode\": \"{{cityCode}}\",\n  \"pincode\": \"{{pincode}}\",\n  \"latitude\": 13.17,\n  \"longitude\": 80.27,\n  \"productsAvailable\": [\"MS\"],\n  \"rackPriceRef\": \"RACK-CHE-01\",\n  \"freightToSp\": 13,\n  \"hazmatClass\": \"3\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Address tweak\",\n  \"externalId\": null,\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}",
+            "description": "All create fields plus versionNo (integer, required). Optimistic lock."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Approval (SAFETY)",
+      "item": [
+        {
+          "name": "07 Submit (DRAFT → PENDING)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}/submit",
+            "description": "Only DRAFT. Does not auto-publish."
+          }
+        },
+        {
+          "name": "08 Approve (PENDING → PUBLISHED)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}/approve",
+            "description": "Needs mdm.master.approve. Only PENDING."
+          }
+        },
+        {
+          "name": "09 Reject (PENDING → REJECTED)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Missing permit\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/{{terminalId}}/reject",
+            "description": "Needs mdm.master.approve. Only PENDING. Use on a different row than 08."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Lookups / export / import",
+      "item": [
+        {
+          "name": "10 Lookups terminals (PUBLISHED parents)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/terminals",
+            "description": "Published terminals for parent pickers."
+          }
+        },
+        {
+          "name": "11 Lookups vendors SUPPLIER",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/vendors?type=SUPPLIER",
+            "description": "Use a PUBLISHED SUPPLIER id as vendorId for THIRD_PARTY."
+          }
+        },
+        {
+          "name": "12 Export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/export",
+            "description": "CSV includes countryId, stateCode, cityCode, pincode."
+          }
+        },
+        {
+          "name": "13 Import JSON rows",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"TRM-IMP-01\",\n    \"name\": \"Imported Terminal\",\n    \"ownership\": \"OWN\",\n    \"shippingPointId\": \"{{shippingPointId}}\",\n    \"vendorId\": null,\n    \"isParent\": false,\n    \"address\": \"Import rack\",\n    \"countryId\": \"{{countryId}}\",\n    \"stateCode\": \"{{stateCode}}\",\n    \"cityCode\": \"{{cityCode}}\",\n    \"pincode\": \"{{pincode}}\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/terminals/import",
+            "description": "JSON array or { rows: [...] }. Same fields as create. Response { accepted, rejected }."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -195,10 +195,27 @@ model City {
   lastUpdateBy   String?   @map("lastupdateby") @db.VarChar(700)
   lastUpdateDate DateTime? @map("lastupdatedate") @db.Timestamp(6)
 
-  state State @relation(fields: [countryId, stateCode], references: [countryId, stateCode])
+  state    State     @relation(fields: [countryId, stateCode], references: [countryId, stateCode])
+  pincodes Pincode[]
 
   @@id([countryId, stateCode, cityCode], map: "pk_city")
   @@map("city")
+  @@schema("public")
+}
+
+/// Applied via sql/public_pincode.sql. Do not Prisma migrate.
+model Pincode {
+  countryId      String    @map("countryid") @db.VarChar(5)
+  stateCode      String    @map("statecode") @db.VarChar(5)
+  cityCode       String    @map("citycode") @db.VarChar(15)
+  pincode        String    @db.VarChar(20)
+  lastUpdateBy   String?   @map("lastupdateby") @db.VarChar(700)
+  lastUpdateDate DateTime? @map("lastupdatedate") @db.Timestamp(6)
+
+  city City @relation(fields: [countryId, stateCode, cityCode], references: [countryId, stateCode, cityCode])
+
+  @@id([countryId, stateCode, cityCode, pincode], map: "pk_pincode")
+  @@map("pincode")
   @@schema("public")
 }
 
@@ -257,6 +274,7 @@ model ShippingPoint {
   division Division                 @relation(fields: [divisionId], references: [id])
   versions ShippingPointVersion[]
   audits   ShippingPointAudit[]
+  terminals Terminal[]
 
   @@map("shipping_point")
   @@schema("branch")
@@ -315,6 +333,7 @@ model Vendor {
 
   versions VendorVersion[]
   audits   VendorAudit[]
+  terminals Terminal[]
 
   @@map("vendor")
   @@schema("branch")
@@ -347,5 +366,77 @@ model VendorAudit {
   vendor Vendor @relation(fields: [vendorId], references: [id])
 
   @@map("vendor_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.8 Terminal. Approval route SAFETY. Applied via sql/branch_terminal.sql.
+model Terminal {
+  id                 String    @id @default(uuid())
+  code               String
+  name               String
+  ownership          String
+  shippingPointId    String    @map("shipping_point_id")
+  vendorId           String?   @map("vendor_id")
+  isParent           Boolean   @default(false) @map("is_parent")
+  address            String
+  countryId          String?   @map("country_id") @db.VarChar(5)
+  stateCode          String?   @map("state_code") @db.VarChar(5)
+  cityCode           String?   @map("city_code") @db.VarChar(15)
+  pincode            String?
+  latitude           Decimal?  @db.Decimal(9, 6)
+  longitude          Decimal?  @db.Decimal(9, 6)
+  productsAvailable  String[]  @default([]) @map("products_available")
+  rackPriceRef       String?   @map("rack_price_ref")
+  freightToSp        Decimal?  @map("freight_to_sp") @db.Decimal(12, 3)
+  hazmatClass        String?   @map("hazmat_class")
+  validFrom          DateTime  @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to") @db.Date
+  reason             String
+  changeNote         String?   @map("change_note")
+  status             String
+  versionNo          Int       @default(1) @map("version_no")
+  externalId         String?   @map("external_id")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by")
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  shippingPoint ShippingPoint @relation(fields: [shippingPointId], references: [id])
+  vendor        Vendor?       @relation(fields: [vendorId], references: [id])
+  versions      TerminalVersion[]
+  audits        TerminalAudit[]
+
+  @@map("terminal")
+  @@schema("branch")
+}
+
+model TerminalVersion {
+  id         String   @id @default(uuid())
+  terminalId String   @map("terminal_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  terminal Terminal @relation(fields: [terminalId], references: [id])
+
+  @@unique([terminalId, versionNo], map: "terminal_version_udx")
+  @@map("terminal_version")
+  @@schema("branch")
+}
+
+model TerminalAudit {
+  id         String   @id @default(uuid())
+  terminalId String   @map("terminal_id")
+  action     String
+  actor      String?
+  note       String?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  terminal Terminal @relation(fields: [terminalId], references: [id])
+
+  @@map("terminal_audit")
   @@schema("branch")
 }
