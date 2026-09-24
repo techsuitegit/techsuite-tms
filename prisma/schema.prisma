@@ -466,6 +466,10 @@ model Uom {
 
   versions UomVersion[]
   audits   UomAudit[]
+  materialsBase   Material[] @relation("MaterialBaseUom")
+  materialsAlt    Material[] @relation("MaterialAltUom")
+  materialsWeight Material[] @relation("MaterialWeightUom")
+  materialsVolume Material[] @relation("MaterialVolumeUom")
 
   @@map("uom")
   @@schema("branch")
@@ -498,5 +502,89 @@ model UomAudit {
   uom Uom @relation(fields: [uomId], references: [id])
 
   @@map("uom_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.9 Material. FINANCIAL approval. Applied via sql/branch_material.sql. Do not expose a UI.
+model Material {
+  id                 String    @id @default(uuid())
+  code               String
+  name               String
+  industryDesc       String?   @map("industry_desc")
+  basicMaterial      String?   @map("basic_material")
+  materialGroup      String?   @map("material_group")
+  itemCategoryGroup  String?   @map("item_category_group")
+  authGroup          String?   @map("auth_group")
+  crossPlant         Boolean?  @map("cross_plant")
+  longText           String?   @map("long_text")
+  dgProfile          String?   @map("dg_profile")
+  dgPackStatus       String?   @map("dg_pack_status")
+  packagingCode      String?   @map("packaging_code")
+  envRelevant        Boolean?  @map("env_relevant")
+  inBulkLiquid       Boolean?  @map("in_bulk_liquid")
+  highlyViscous      Boolean?  @map("highly_viscous")
+  unNumber           String?   @map("un_number")
+  baseUomId          String    @map("base_uom_id")
+  altUomId           String?   @map("alt_uom_id")
+  altFactor          Decimal?  @map("alt_factor") @db.Decimal(18, 8)
+  grossWeight        Decimal?  @map("gross_weight") @db.Decimal(18, 6)
+  weightUomId        String?   @map("weight_uom_id")
+  netWeight          Decimal?  @map("net_weight") @db.Decimal(18, 6)
+  volume             Decimal?  @db.Decimal(18, 6)
+  volumeUomId        String?   @map("volume_uom_id")
+  dimensions         String?
+  ean                String?
+  eanCategory        String?   @map("ean_category")
+  validFrom          DateTime  @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to") @db.Date
+  reason             String
+  changeNote         String?   @map("change_note")
+  status             String
+  versionNo          Int       @default(1) @map("version_no")
+  externalId         String?   @map("external_id")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by")
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  baseUom   Uom  @relation("MaterialBaseUom", fields: [baseUomId], references: [id])
+  altUom    Uom? @relation("MaterialAltUom", fields: [altUomId], references: [id])
+  weightUom Uom? @relation("MaterialWeightUom", fields: [weightUomId], references: [id])
+  volumeUom Uom? @relation("MaterialVolumeUom", fields: [volumeUomId], references: [id])
+  versions  MaterialVersion[]
+  audits    MaterialAudit[]
+
+  @@map("material")
+  @@schema("branch")
+}
+
+model MaterialVersion {
+  id         String   @id @default(uuid())
+  materialId String   @map("material_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  material Material @relation(fields: [materialId], references: [id])
+
+  @@unique([materialId, versionNo], map: "material_version_udx")
+  @@map("material_version")
+  @@schema("branch")
+}
+
+model MaterialAudit {
+  id         String   @id @default(uuid())
+  materialId String   @map("material_id")
+  action     String
+  actor      String?
+  note       String?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  material Material @relation(fields: [materialId], references: [id])
+
+  @@map("material_audit")
   @@schema("branch")
 }

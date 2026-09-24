@@ -5,6 +5,7 @@ import { LoginController } from "@/app/api-services/controllers/login.controller
 import { ShippingPointController } from "@/app/api-services/controllers/shipping-point.controller";
 import { GeoController } from "@/app/api-services/controllers/geo.controller";
 import { TerminalController } from "@/app/api-services/controllers/terminal.controller";
+import { MaterialController } from "@/app/api-services/controllers/material.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -13,18 +14,21 @@ import { IamRepository } from "@/app/api-services/repositories/iam.repository";
 import { ShippingPointRepository } from "@/app/api-services/repositories/shipping-point.repository";
 import { GeoRepository } from "@/app/api-services/repositories/geo.repository";
 import { TerminalRepository } from "@/app/api-services/repositories/terminal.repository";
+import { MaterialRepository } from "@/app/api-services/repositories/material.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
 import { ShippingPointRoutes } from "@/app/api-services/routes/shipping-point.routes";
 import { GeoRoutes } from "@/app/api-services/routes/geo.routes";
 import { TerminalRoutes } from "@/app/api-services/routes/terminal.routes";
+import { MaterialRoutes } from "@/app/api-services/routes/material.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
 import { ShippingPointService } from "@/app/api-services/services/shipping-point.service";
 import { GeoService } from "@/app/api-services/services/geo.service";
 import { TerminalService } from "@/app/api-services/services/terminal.service";
+import { MaterialService } from "@/app/api-services/services/material.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -43,7 +47,11 @@ const shippingPointController = new ShippingPointController(
   new ShippingPointService(new ShippingPointRepository(pool)),
 );
 const vendorController = new VendorController(new VendorService(new VendorRepository(pool)));
-const uomController = new UomController(new UomService(new UomRepository(pool)));
+const uomRepository = new UomRepository(pool);
+const uomController = new UomController(new UomService(uomRepository));
+const materialController = new MaterialController(
+  new MaterialService(new MaterialRepository(pool), uomRepository),
+);
 const geoRepository = new GeoRepository(pool);
 const geoController = new GeoController(new GeoService(geoRepository));
 const terminalController = new TerminalController(
@@ -55,6 +63,7 @@ const routes = [
   ...new ShippingPointRoutes(shippingPointController).register(),
   ...new VendorRoutes(vendorController).register(),
   ...new UomRoutes(uomController).register(),
+  ...new MaterialRoutes(materialController).register(),
   ...new GeoRoutes(geoController).register(),
   ...new TerminalRoutes(terminalController).register(),
 ];

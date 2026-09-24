@@ -1,0 +1,710 @@
+{
+  "info": {
+    "_postman_id": "c8f3d02b-5e29-4a1f-8d42-tms-material",
+    "name": "TMS — Material (WBS 2.9)",
+    "description": "Detailed Material APIs on the Node process (port 3001). No UI.\n\n## Setup\n1. `npm run api:sql` then `npm run api` (needs `branch.uom` first).\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + UOM parents** first. Scripts save `token`, `baseUomId` (L), `weightUomId` (KG), `volumeUomId` (M3).\n4. No trailing slash. Port **3001**, not 3000.\n\n## Status (FINANCIAL)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nsap-upsert → **PUBLISHED** immediately (idempotent on `externalId`)\n\n## Rules\n- `baseUomId` required and must be a **PUBLISHED** UOM. Missing → 400.\n- `code` locked after first save. PATCH new code → 409.\n- PATCH `baseUomId` / `dgProfile` / `unNumber` / alt or weight/volume UOM on a **PUBLISHED** row → **PENDING**.\n- Non-financial PATCH on PUBLISHED → **DRAFT**.\n- PENDING row cannot be PATCHed (409 LOCKED).\n- `altFactor` required if `altUomId` is set.\n- `weightUomId` must be dimension MASS. `volumeUomId` must be dimension VOLUME.\n- Unknown JSON keys → 400.\n- GET `/lookups/materials` returns PUBLISHED only.\n\n## Enums\nmaterialGroup: FUEL-MS | FUEL-HSD | FUEL-LPG | CYL | LUBE\nitemCategoryGroup: NORM | HAZMAT | PACK\ndgProfile: Class 2.1 | Class 3 | —\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "baseUomId", "value": "" },
+    { "key": "altUomId", "value": "" },
+    { "key": "weightUomId", "value": "" },
+    { "key": "volumeUomId", "value": "" },
+    { "key": "materialId", "value": "" },
+    { "key": "rejectMaterialId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + UOM parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token.\n200 { ok: true, name: tms-api }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) {",
+                  "    pm.collectionVariables.set('token', token);",
+                  "    console.log('token saved');",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. No Bearer.\nBody keys: producttype, enviroment (typo is required), login, password.\n200 saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups UOM — save L / KG / M3 / GAL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const pick = (code) => (rows.find((r) => r.code === code) || {}).id;",
+                  "  if (pick('L')) pm.collectionVariables.set('baseUomId', pick('L'));",
+                  "  if (pick('GAL')) pm.collectionVariables.set('altUomId', pick('GAL'));",
+                  "  if (pick('KG')) pm.collectionVariables.set('weightUomId', pick('KG'));",
+                  "  if (pick('M3')) pm.collectionVariables.set('volumeUomId', pick('M3'));",
+                  "  console.log('baseUomId', pm.collectionVariables.get('baseUomId'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/uom",
+            "description": "Published UOMs only. 200 [{ id, code, name }].\nSaves L → {{baseUomId}}, GAL → {{altUomId}}, KG → {{weightUomId}}, M3 → {{volumeUomId}}.\nRun `npm run api:sql` if this list is empty."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. POST create (DRAFT)",
+      "item": [
+        {
+          "name": "03 POST create — required fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('materialId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MS-BS-VI\",\n  \"name\": \"Motor Spirit BS-VI\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "Minimum body. FINANCIAL create is DRAFT (not published).\n201 { id, status: DRAFT, versionNo: 1 }.\nSaves {{materialId}} and {{versionNo}}.\n409 if code MS-BS-VI already exists from an earlier run — use request 04 or sap-upsert instead."
+          }
+        },
+        {
+          "name": "04 POST create — full optional fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('materialId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LPG-COMM\",\n  \"name\": \"Commercial LPG\",\n  \"industryDesc\": \"Liquefied petroleum gas\",\n  \"basicMaterial\": \"LPG\",\n  \"materialGroup\": \"FUEL-LPG\",\n  \"itemCategoryGroup\": \"HAZMAT\",\n  \"authGroup\": \"DG\",\n  \"crossPlant\": true,\n  \"longText\": \"Bulk LPG for commercial filling\",\n  \"dgProfile\": \"Class 2.1\",\n  \"dgPackStatus\": \"Approved\",\n  \"packagingCode\": \"P200\",\n  \"envRelevant\": true,\n  \"inBulkLiquid\": true,\n  \"highlyViscous\": false,\n  \"unNumber\": \"UN1075\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"altUomId\": \"{{altUomId}}\",\n  \"altFactor\": 3.78541178,\n  \"grossWeight\": 1.2,\n  \"weightUomId\": \"{{weightUomId}}\",\n  \"netWeight\": 1.1,\n  \"volume\": 1,\n  \"volumeUomId\": \"{{volumeUomId}}\",\n  \"dimensions\": \"bulk\",\n  \"ean\": \"8901234567890\",\n  \"eanCategory\": \"HE\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"New record\",\n  \"changeNote\": \"Full catalogue create\",\n  \"externalId\": \"MAT-LPG-COMM\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "Every optional field. altFactor required because altUomId is set.\nweightUomId = KG (MASS). volumeUomId = M3 (VOLUME).\n201 { id, status: DRAFT, versionNo }.\nUnknown keys are rejected — do not add status or versionNo on create."
+          }
+        },
+        {
+          "name": "05 POST create — missing baseUomId (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"NO-UOM\",\n  \"name\": \"Missing UOM\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "Story test: publish/create without UOM.\n400 { code: VALIDATION, message: baseUomId is required, field: baseUomId }."
+          }
+        },
+        {
+          "name": "06 POST create — UOM UUID not found (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"BAD-UOM\",\n  \"name\": \"Unknown UOM\",\n  \"baseUomId\": \"00000000-0000-4000-8000-000000000001\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "400 { code: PARENT_NOT_FOUND, field: baseUomId }."
+          }
+        },
+        {
+          "name": "07 POST create — altUom without altFactor (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"NO-FACTOR\",\n  \"name\": \"Alt without factor\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"altUomId\": \"{{altUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "400 { field: altFactor, message: altFactor is required when altUomId is set }."
+          }
+        },
+        {
+          "name": "08 POST create — weight UOM is VOLUME (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"BAD-WT\",\n  \"name\": \"Wrong weight UOM\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"weightUomId\": \"{{volumeUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "volumeUomId (M3) used as weightUomId.\n400 { field: weightUomId, message: UOM dimension must be MASS }."
+          }
+        },
+        {
+          "name": "09 POST create — unknown JSON key (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"BAD-KEY\",\n  \"name\": \"Unknown field\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"productName\": \"do not send\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "400 { code: VALIDATION, message: Unknown field productName, field: productName }.\nLabel is Material, never Product."
+          }
+        },
+        {
+          "name": "10 POST create — duplicate code (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MS-BS-VI\",\n  \"name\": \"Motor Spirit BS-VI again\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "Run after 03. 409 { code: CONFLICT, message: Material code or externalId already exists }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. FINANCIAL submit / approve / reject",
+      "item": [
+        {
+          "name": "11 GET one (refresh versionNo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "  if (json.id) pm.collectionVariables.set('materialId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "No body. 200 current row + parent labels (baseUomCode, baseUomName, …).\nSaves versionNo. 404 if {{materialId}} is empty."
+          }
+        },
+        {
+          "name": "12 PATCH draft — name only (stays DRAFT)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LPG-COMM\",\n  \"name\": \"Commercial LPG (amended)\",\n  \"industryDesc\": \"Liquefied petroleum gas\",\n  \"basicMaterial\": \"LPG\",\n  \"materialGroup\": \"FUEL-LPG\",\n  \"itemCategoryGroup\": \"HAZMAT\",\n  \"authGroup\": \"DG\",\n  \"crossPlant\": true,\n  \"longText\": \"Bulk LPG for commercial filling\",\n  \"dgProfile\": \"Class 2.1\",\n  \"dgPackStatus\": \"Approved\",\n  \"packagingCode\": \"P200\",\n  \"envRelevant\": true,\n  \"inBulkLiquid\": true,\n  \"highlyViscous\": false,\n  \"unNumber\": \"UN1075\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"altUomId\": \"{{altUomId}}\",\n  \"altFactor\": 3.78541178,\n  \"grossWeight\": 1.2,\n  \"weightUomId\": \"{{weightUomId}}\",\n  \"netWeight\": 1.1,\n  \"volume\": 1,\n  \"volumeUomId\": \"{{volumeUomId}}\",\n  \"dimensions\": \"bulk\",\n  \"ean\": \"8901234567890\",\n  \"eanCategory\": \"HE\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": null,\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Name tidy\",\n  \"externalId\": \"MAT-LPG-COMM\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "Run after 04 + 11 so code/version match LPG-COMM.\nIf you created MS-BS-VI in 03, change code in this body to MS-BS-VI or skip.\n200 { id, versionNo, status: DRAFT }.\nversionNo is required."
+          }
+        },
+        {
+          "name": "13 PATCH — missing versionNo (expect 400)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LPG-COMM\",\n  \"name\": \"Commercial LPG\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "400 { field: versionNo }."
+          }
+        },
+        {
+          "name": "14 PATCH — stale versionNo (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LPG-COMM\",\n  \"name\": \"Stale\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "409 { code: STALE_VERSION, message: record changed by another user } if current version is not 1."
+          }
+        },
+        {
+          "name": "15 PATCH — change code (expect 409 locked)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CHANGED\",\n  \"name\": \"Commercial LPG\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "BE-01. 409 { code: LOCKED, message: code is locked after first save, field: code }."
+          }
+        },
+        {
+          "name": "16 Submit — missing reason (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}/submit",
+            "description": "400 { field: reason }."
+          }
+        },
+        {
+          "name": "17 Submit — DRAFT to PENDING",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}/submit",
+            "description": "Only DRAFT can submit. 200 { status: PENDING }.\n409 if already PENDING or PUBLISHED."
+          }
+        },
+        {
+          "name": "18 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LPG-COMM\",\n  \"name\": \"Should fail\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "409 { code: LOCKED, message: PENDING Material cannot be amended }."
+          }
+        },
+        {
+          "name": "19 Approve — PENDING to PUBLISHED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Finance approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}/approve",
+            "description": "Approver permission mdm.master.approve (empty JWT permissions still pass).\n200 { status: PUBLISHED }.\n409 if not PENDING."
+          }
+        },
+        {
+          "name": "20 GET one after approve (refresh versionNo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "status should be PUBLISHED. Saves latest versionNo for PATCH tests."
+          }
+        },
+        {
+          "name": "21 PATCH dgProfile on PUBLISHED → PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"LPG-COMM\",\n  \"name\": \"Commercial LPG (amended)\",\n  \"industryDesc\": \"Liquefied petroleum gas\",\n  \"basicMaterial\": \"LPG\",\n  \"materialGroup\": \"FUEL-LPG\",\n  \"itemCategoryGroup\": \"HAZMAT\",\n  \"dgProfile\": \"Class 3\",\n  \"unNumber\": \"UN1075\",\n  \"inBulkLiquid\": true,\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Regulatory update\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "Story test: PATCH dgProfile on published → PENDING.\nSame for baseUomId or unNumber.\n200 { id, versionNo, status: PENDING }.\nRun 20 first so versionNo is current."
+          }
+        },
+        {
+          "name": "22 POST create for reject flow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('rejectMaterialId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"REJ-TEST\",\n  \"name\": \"Reject candidate\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials",
+            "description": "Separate row so reject does not break {{materialId}}.\n201 DRAFT. Saves {{rejectMaterialId}}."
+          }
+        },
+        {
+          "name": "23 Submit reject-candidate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{rejectMaterialId}}/submit",
+            "description": "200 { status: PENDING }."
+          }
+        },
+        {
+          "name": "24 Reject — missing note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{rejectMaterialId}}/reject",
+            "description": "400 { field: note }."
+          }
+        },
+        {
+          "name": "25 Reject — PENDING to REJECTED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Hazmat class not accepted\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{rejectMaterialId}}/reject",
+            "description": "200 { status: REJECTED }.\n409 if not PENDING."
+          }
+        },
+        {
+          "name": "26 Approve when not PENDING (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"too late\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{rejectMaterialId}}/approve",
+            "description": "409 { code: CONFLICT, message: Only PENDING rows can be approved }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. SAP upsert (publishes immediately)",
+      "item": [
+        {
+          "name": "27 SAP upsert — new HSD",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('materialId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"MAT-HSD-BS-VI\",\n  \"code\": \"HSD-BS-VI\",\n  \"name\": \"High Speed Diesel BS-VI\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"materialGroup\": \"FUEL-HSD\",\n  \"itemCategoryGroup\": \"HAZMAT\",\n  \"dgProfile\": \"Class 3\",\n  \"unNumber\": \"UN1202\",\n  \"inBulkLiquid\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/sap-upsert",
+            "description": "externalId required. Skips FINANCIAL queue.\n200 { id, externalId, status: PUBLISHED }.\nRepeat is idempotent on externalId."
+          }
+        },
+        {
+          "name": "28 SAP upsert — same key updates",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"MAT-HSD-BS-VI\",\n  \"code\": \"HSD-BS-VI\",\n  \"name\": \"High Speed Diesel BS-VI (SAP sync)\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"materialGroup\": \"FUEL-HSD\",\n  \"dgProfile\": \"Class 3\",\n  \"unNumber\": \"UN1202\",\n  \"inBulkLiquid\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"SAP stub sync\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/sap-upsert",
+            "description": "Same externalId updates the row and stays PUBLISHED.\n200 { id, externalId, status: PUBLISHED }."
+          }
+        },
+        {
+          "name": "29 SAP upsert — missing externalId (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"HSD-BS-VI\",\n  \"name\": \"High Speed Diesel\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/sap-upsert",
+            "description": "400 { code: VALIDATION, message: missing SAP key, field: externalId }."
+          }
+        },
+        {
+          "name": "30 SAP upsert — new key but existing code (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalId\": \"MAT-HSD-OTHER\",\n  \"code\": \"HSD-BS-VI\",\n  \"name\": \"High Speed Diesel\",\n  \"baseUomId\": \"{{baseUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/materials/sap-upsert",
+            "description": "New externalId cannot reuse code HSD-BS-VI.\n409 { code: CONFLICT }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Read",
+      "item": [
+        {
+          "name": "31 List — all filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/mdm/materials?q=HSD&status=PUBLISHED&page=1&pageSize=20&sort=code",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "mdm", "materials"],
+              "query": [
+                { "key": "q", "value": "HSD", "description": "Search code or name" },
+                { "key": "status", "value": "PUBLISHED", "description": "DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "sort", "value": "code", "description": "code | name | status | validFrom | updatedAt" }
+              ]
+            },
+            "description": "No body. 200 { items, total, page }.\nEach item includes baseUomId, baseUomCode, baseUomName."
+          }
+        },
+        {
+          "name": "32 List — no filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials?page=1&pageSize=20&sort=updatedAt",
+            "description": "All non-deleted rows. Soft-deleted are hidden."
+          }
+        },
+        {
+          "name": "33 Get one",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}",
+            "description": "200 current version + UOM labels.\n404 { code: NOT_FOUND } if id is missing or not a UUID."
+          }
+        },
+        {
+          "name": "34 Get one — bad id (expect 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials/not-a-uuid",
+            "description": "404 { code: NOT_FOUND, message: Material was not found }."
+          }
+        },
+        {
+          "name": "35 Lookups materials (published only)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/materials",
+            "description": "For Storage Tank / Vehicle / Cylinder later.\n200 [{ id, code, name }]. DRAFT / PENDING / REJECTED are hidden.\nAfter 21, LPG-COMM is PENDING so it will not appear; HSD from sap-upsert will."
+          }
+        },
+        {
+          "name": "36 Versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}/versions",
+            "description": "200 { versions: [{ versionNo, snapshot, recordedAt, recordedBy }] }.\nAppend-only. Each save / submit / approve adds a snapshot."
+          }
+        },
+        {
+          "name": "37 Audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/materials/{{materialId}}/audit",
+            "description": "200 { events: [{ action, actor, note, payload, createdAt }] }.\nActions: CREATE | UPDATE | SUBMIT | APPROVE | REJECT | SAP_UPSERT."
+          }
+        }
+      ]
+    }
+  ]
+}
