@@ -730,3 +730,90 @@ model FeeAudit {
   @@map("fee_audit")
   @@schema("branch")
 }
+
+/// WBS 2.12 Pricing Procedure. FINANCIAL approval. Rules and conditions are children.
+model PricingProcedure {
+  id             String    @id @default(uuid())
+  code           String
+  name           String
+  accessSequence String    @map("access_sequence")
+  active         Boolean
+  validFrom      DateTime  @map("valid_from") @db.Date
+  validTo        DateTime? @map("valid_to") @db.Date
+  reason         String
+  changeNote     String?   @map("change_note")
+  status         String
+  versionNo      Int       @default(1) @map("version_no")
+  externalId     String?   @map("external_id")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  rules    PricingRule[]
+  versions PricingProcedureVersion[]
+  audits   PricingProcedureAudit[]
+
+  @@map("pricing_procedure")
+  @@schema("branch")
+}
+
+model PricingRule {
+  id          String  @id @default(uuid())
+  procedureId String  @map("procedure_id")
+  code        String
+  priority    Int
+  joinOp      String  @map("join_op")
+  amount      Decimal @db.Decimal(14, 2)
+
+  procedure  PricingProcedure       @relation(fields: [procedureId], references: [id])
+  conditions PricingRuleCondition[]
+
+  @@unique([procedureId, code], map: "pricing_rule_code_udx")
+  @@map("pricing_rule")
+  @@schema("branch")
+}
+
+model PricingRuleCondition {
+  id       String  @id @default(uuid())
+  ruleId   String  @map("rule_id")
+  variable String
+  operator String
+  value    String?
+
+  rule PricingRule @relation(fields: [ruleId], references: [id])
+
+  @@map("pricing_rule_condition")
+  @@schema("branch")
+}
+
+model PricingProcedureVersion {
+  id          String   @id @default(uuid())
+  procedureId String   @map("procedure_id")
+  versionNo   Int      @map("version_no")
+  snapshot    Json
+  recordedAt  DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy  String?  @map("recorded_by")
+
+  procedure PricingProcedure @relation(fields: [procedureId], references: [id])
+
+  @@unique([procedureId, versionNo], map: "pricing_procedure_version_udx")
+  @@map("pricing_procedure_version")
+  @@schema("branch")
+}
+
+model PricingProcedureAudit {
+  id          String   @id @default(uuid())
+  procedureId String   @map("procedure_id")
+  action      String
+  actor       String?
+  note        String?
+  payload     Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  procedure PricingProcedure @relation(fields: [procedureId], references: [id])
+
+  @@map("pricing_procedure_audit")
+  @@schema("branch")
+}

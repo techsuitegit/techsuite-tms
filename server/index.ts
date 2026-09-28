@@ -6,6 +6,7 @@ import { ShippingPointController } from "@/app/api-services/controllers/shipping
 import { GeoController } from "@/app/api-services/controllers/geo.controller";
 import { TerminalController } from "@/app/api-services/controllers/terminal.controller";
 import { FeeController } from "@/app/api-services/controllers/fee.controller";
+import { PricingProcedureController } from "@/app/api-services/controllers/pricing-procedure.controller";
 import { MaterialController } from "@/app/api-services/controllers/material.controller";
 import { StorageTankController } from "@/app/api-services/controllers/storage-tank.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
@@ -17,6 +18,7 @@ import { ShippingPointRepository } from "@/app/api-services/repositories/shippin
 import { GeoRepository } from "@/app/api-services/repositories/geo.repository";
 import { TerminalRepository } from "@/app/api-services/repositories/terminal.repository";
 import { FeeRepository } from "@/app/api-services/repositories/fee.repository";
+import { PricingProcedureRepository } from "@/app/api-services/repositories/pricing-procedure.repository";
 import { MaterialRepository } from "@/app/api-services/repositories/material.repository";
 import { StorageTankRepository } from "@/app/api-services/repositories/storage-tank.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
@@ -26,6 +28,7 @@ import { ShippingPointRoutes } from "@/app/api-services/routes/shipping-point.ro
 import { GeoRoutes } from "@/app/api-services/routes/geo.routes";
 import { TerminalRoutes } from "@/app/api-services/routes/terminal.routes";
 import { FeeRoutes } from "@/app/api-services/routes/fee.routes";
+import { PricingProcedureRoutes } from "@/app/api-services/routes/pricing-procedure.routes";
 import { MaterialRoutes } from "@/app/api-services/routes/material.routes";
 import { StorageTankRoutes } from "@/app/api-services/routes/storage-tank.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
@@ -35,6 +38,7 @@ import { ShippingPointService } from "@/app/api-services/services/shipping-point
 import { GeoService } from "@/app/api-services/services/geo.service";
 import { TerminalService } from "@/app/api-services/services/terminal.service";
 import { FeeService } from "@/app/api-services/services/fee.service";
+import { PricingProcedureService } from "@/app/api-services/services/pricing-procedure.service";
 import { MaterialService } from "@/app/api-services/services/material.service";
 import { StorageTankService } from "@/app/api-services/services/storage-tank.service";
 import { UomService } from "@/app/api-services/services/uom.service";
@@ -64,6 +68,9 @@ const storageTankController = new StorageTankController(
   new StorageTankService(new StorageTankRepository(pool)),
 );
 const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
+const pricingProcedureController = new PricingProcedureController(
+  new PricingProcedureService(new PricingProcedureRepository(pool)),
+);
 const geoRepository = new GeoRepository(pool);
 const geoController = new GeoController(new GeoService(geoRepository));
 const terminalController = new TerminalController(
@@ -78,6 +85,7 @@ const routes = [
   ...new MaterialRoutes(materialController).register(),
   ...new StorageTankRoutes(storageTankController).register(),
   ...new FeeRoutes(feeController).register(),
+  ...new PricingProcedureRoutes(pricingProcedureController).register(),
   ...new GeoRoutes(geoController).register(),
   ...new TerminalRoutes(terminalController).register(),
 ];

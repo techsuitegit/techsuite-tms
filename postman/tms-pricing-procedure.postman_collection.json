@@ -1,0 +1,440 @@
+{
+  "info": {
+    "_postman_id": "c1d9f28b-7e42-4a16-9b77-tms-pricing-procedure",
+    "name": "TMS — Pricing Procedure (WBS 2.12)",
+    "description": "Pricing Procedure APIs on the Node process (port 3001). No UI. No sap-upsert. Evaluate is a match stub, not billing.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + Material** first. Scripts save `token` and `materialId` (published Material, prefers HSD-BS-VI).\n4. No trailing slash. Port **3001**, not 3000.\n5. Code `PP-ROAD-01` may already exist from a local check. This collection uses `PP-ROAD-PM`, `PP-REJ-PM`, and `PP-IMP-PM`. A second run of the same code returns 409.\n\n## Status (FINANCIAL)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nPATCH on **PUBLISHED** or **REJECTED** → **DRAFT**\nPATCH on **PENDING** → 409\n\n## Rules\n- A procedure has one or more rules. Each rule has one or more conditions.\n- `priority`: lower number runs first.\n- `join`: AND | OR, across that rule's conditions only.\n- `amount` must be a number greater than 0, at most 2 decimal places.\n- variable: CUSTOMER_CLASS | CUSTOMER_NAME | KILOMETRES | TRUCK_TYPE | VOLUME | MATERIAL.\n- operator: EQ | NE | GT | LT | NULL.\n- `value` is required unless operator is NULL. NULL with a value → 400.\n- GT and LT are only valid for KILOMETRES and VOLUME.\n- MATERIAL value must be a published materialId.\n- Customer class, customer name, and truck type are text. There is no customer or truck-type table.\n- `versionNo` on PATCH must match the current row. Read it with GET first.\n- GET `/lookups/pricing-procedures` returns PUBLISHED only.\n- POST `.../evaluate` returns `{ matched, ruleId, amount }` or `{ matched: false, ruleId: null, amount: null }`.\n- Export is JSON of DRAFT and PUBLISHED procedures, including rules.\n\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "materialId", "value": "" },
+    { "key": "procedureId", "value": "" },
+    { "key": "rejectProcedureId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + Material",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Material — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const hsd = rows.find((r) => r.code === 'HSD-BS-VI') || rows[0];",
+                  "  if (hsd && hsd.id) pm.collectionVariables.set('materialId', hsd.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/materials",
+            "description": "Published materials only. Prefers HSD-BS-VI. Saves {{materialId}} for MATERIAL conditions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. POST create (DRAFT)",
+      "item": [
+        {
+          "name": "03 POST create — sample procedure",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('procedureId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PP-ROAD-PM\",\n  \"name\": \"Road delivery — volume and km\",\n  \"accessSequence\": \"CUSTOMER_CLASS>CUSTOMER_NAME>KILOMETRES>TRUCK_TYPE>VOLUME>MATERIAL\",\n  \"active\": true,\n  \"rules\": [\n    {\n      \"code\": \"R1\",\n      \"priority\": 10,\n      \"join\": \"AND\",\n      \"amount\": 12.5,\n      \"conditions\": [\n        { \"variable\": \"TRUCK_TYPE\", \"operator\": \"EQ\", \"value\": \"BOBTAIL_LPG\" },\n        { \"variable\": \"VOLUME\", \"operator\": \"GT\", \"value\": \"5000\" },\n        { \"variable\": \"MATERIAL\", \"operator\": \"EQ\", \"value\": \"{{materialId}}\" }\n      ]\n    }\n  ],\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Saves {{procedureId}}. 409 if PP-ROAD-PM already exists."
+          }
+        },
+        {
+          "name": "04 POST create — NULL operator with value (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PP-NULL\",\n  \"name\": \"Null with value\",\n  \"accessSequence\": \"CUSTOMER_CLASS\",\n  \"active\": true,\n  \"rules\": [\n    {\n      \"code\": \"R1\",\n      \"priority\": 1,\n      \"join\": \"AND\",\n      \"amount\": 1,\n      \"conditions\": [\n        { \"variable\": \"CUSTOMER_CLASS\", \"operator\": \"NULL\", \"value\": \"X\" }\n      ]\n    }\n  ],\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures",
+            "description": "400 { code: VALIDATION, field: rules[0].conditions[0].value }."
+          }
+        },
+        {
+          "name": "05 POST create — unknown variable (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PP-INDEX\",\n  \"name\": \"Index variable\",\n  \"accessSequence\": \"MATERIAL\",\n  \"active\": true,\n  \"rules\": [\n    {\n      \"code\": \"R1\",\n      \"priority\": 1,\n      \"join\": \"AND\",\n      \"amount\": 1,\n      \"conditions\": [\n        { \"variable\": \"INDEX\", \"operator\": \"EQ\", \"value\": \"1\" }\n      ]\n    }\n  ],\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures",
+            "description": "400 { code: VALIDATION }. Only the six variables are allowed. Index is out of scope."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. FINANCIAL workflow and evaluate",
+      "item": [
+        {
+          "name": "06 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}",
+            "description": "200 procedure with rules and conditions. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "07 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures?q=PP-ROAD-PM&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. List rows are headers. Rules are on GET by id."
+          }
+        },
+        {
+          "name": "08 POST evaluate — match",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"truckType\": \"BOBTAIL_LPG\",\n  \"volume\": 6000,\n  \"materialId\": \"{{materialId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}/evaluate",
+            "description": "200 { matched: true, ruleId, amount: 12.5 }. Volume 6000 is greater than 5000 and the truck type matches. This does not create a bill."
+          }
+        },
+        {
+          "name": "09 POST evaluate — no match",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"truckType\": \"BOBTAIL_LPG\",\n  \"volume\": 1000,\n  \"materialId\": \"{{materialId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}/evaluate",
+            "description": "200 { matched: false, ruleId: null, amount: null }. Volume 1000 fails the GT 5000 condition."
+          }
+        },
+        {
+          "name": "10 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}/submit",
+            "description": "DRAFT → PENDING. 200 { status: PENDING }. Empty reason → 400."
+          }
+        },
+        {
+          "name": "11 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PP-ROAD-PM\",\n  \"name\": \"Road delivery amended\",\n  \"accessSequence\": \"CUSTOMER_CLASS>CUSTOMER_NAME>KILOMETRES>TRUCK_TYPE>VOLUME>MATERIAL\",\n  \"active\": true,\n  \"rules\": [\n    {\n      \"code\": \"R1\",\n      \"priority\": 10,\n      \"join\": \"AND\",\n      \"amount\": 12.5,\n      \"conditions\": [\n        { \"variable\": \"TRUCK_TYPE\", \"operator\": \"EQ\", \"value\": \"BOBTAIL_LPG\" },\n        { \"variable\": \"VOLUME\", \"operator\": \"GT\", \"value\": \"5000\" }\n      ]\n    }\n  ],\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}",
+            "description": "409 { code: LOCKED }. PENDING cannot be amended. versionNo after submit is 2."
+          }
+        },
+        {
+          "name": "12 POST approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}/approve",
+            "description": "PENDING → PUBLISHED. Requires mdm.master.approve."
+          }
+        },
+        {
+          "name": "13 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/pricing-procedures",
+            "description": "200 [{ id, code, name }]. PP-ROAD-PM appears after approve."
+          }
+        },
+        {
+          "name": "14 GET by id — refresh version after approve",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}",
+            "description": "After create, submit, and approve, versionNo is 3. Run this before the published PATCH."
+          }
+        },
+        {
+          "name": "15 PATCH published — back to DRAFT",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PP-ROAD-PM\",\n  \"name\": \"Road delivery amended\",\n  \"accessSequence\": \"CUSTOMER_CLASS>CUSTOMER_NAME>KILOMETRES>TRUCK_TYPE>VOLUME>MATERIAL\",\n  \"active\": true,\n  \"rules\": [\n    {\n      \"code\": \"R1\",\n      \"priority\": 10,\n      \"join\": \"AND\",\n      \"amount\": 15,\n      \"conditions\": [\n        { \"variable\": \"TRUCK_TYPE\", \"operator\": \"EQ\", \"value\": \"BOBTAIL_LPG\" },\n        { \"variable\": \"VOLUME\", \"operator\": \"GT\", \"value\": \"5000\" },\n        { \"variable\": \"MATERIAL\", \"operator\": \"EQ\", \"value\": \"{{materialId}}\" }\n      ]\n    }\n  ],\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Amount 12.5 to 15\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}",
+            "description": "200 { id, versionNo, status: DRAFT }. The new amount is not published until submit and approve again. Wrong versionNo → 409 STALE_VERSION. Run request 14 first."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reject path",
+      "item": [
+        {
+          "name": "16 POST create — reject sample",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('rejectProcedureId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PP-REJ-PM\",\n  \"name\": \"Procedure to reject\",\n  \"accessSequence\": \"CUSTOMER_NAME\",\n  \"active\": true,\n  \"rules\": [\n    {\n      \"code\": \"R1\",\n      \"priority\": 1,\n      \"join\": \"AND\",\n      \"amount\": 8,\n      \"conditions\": [\n        { \"variable\": \"CUSTOMER_NAME\", \"operator\": \"EQ\", \"value\": \"ACME\" }\n      ]\n    }\n  ],\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures",
+            "description": "201 DRAFT. Saves {{rejectProcedureId}}. Customer name is text."
+          }
+        },
+        {
+          "name": "17 POST submit reject sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit for reject test\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{rejectProcedureId}}/submit",
+            "description": "DRAFT → PENDING."
+          }
+        },
+        {
+          "name": "18 POST reject — missing note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{rejectProcedureId}}/reject",
+            "description": "400 { code: VALIDATION, field: note }."
+          }
+        },
+        {
+          "name": "19 POST reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Amount not agreed\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{rejectProcedureId}}/reject",
+            "description": "PENDING → REJECTED. Requires mdm.master.approve."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import, export, reads",
+      "item": [
+        {
+          "name": "20 POST import — one accepted, one rejected",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"PP-IMP-PM\",\n    \"name\": \"Imported procedure\",\n    \"accessSequence\": \"KILOMETRES\",\n    \"active\": true,\n    \"rules\": [\n      {\n        \"code\": \"R1\",\n        \"priority\": 5,\n        \"join\": \"OR\",\n        \"amount\": 20,\n        \"conditions\": [\n          { \"variable\": \"KILOMETRES\", \"operator\": \"GT\", \"value\": \"100\" },\n          { \"variable\": \"CUSTOMER_CLASS\", \"operator\": \"NULL\" }\n        ]\n      }\n    ],\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"PP-IMP-BAD\",\n    \"name\": \"Bad import\",\n    \"accessSequence\": \"VOLUME\",\n    \"active\": true,\n    \"rules\": [\n      {\n        \"code\": \"R1\",\n        \"priority\": 1,\n        \"join\": \"AND\",\n        \"amount\": 1,\n        \"conditions\": [\n          { \"variable\": \"VOLUME\", \"operator\": \"NULL\", \"value\": \"10\" }\n        ]\n      }\n    ],\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/import",
+            "description": "200 { accepted, rejected }. Row 1 is DRAFT. Row 2 fails because NULL has a value. Row 1 is not rolled back."
+          }
+        },
+        {
+          "name": "21 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/export",
+            "description": "JSON file of DRAFT and PUBLISHED procedures, including rules. A PENDING procedure is omitted."
+          }
+        },
+        {
+          "name": "22 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}/versions",
+            "description": "200 { versions: [{ versionNo, snapshot, recordedAt, recordedBy }] }. The snapshot includes rules and conditions."
+          }
+        },
+        {
+          "name": "23 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/{{procedureId}}/audit",
+            "description": "200 { events: [{ action, actor, note, payload, createdAt }] }."
+          }
+        },
+        {
+          "name": "24 GET unknown id (expect 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/pricing-procedures/00000000-0000-4000-8000-000000000001",
+            "description": "404 { code: NOT_FOUND }."
+          }
+        }
+      ]
+    }
+  ]
+}
