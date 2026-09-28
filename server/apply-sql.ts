@@ -35,6 +35,8 @@ async function main() {
     "branch_terminal.sql",
     "branch_uom.sql",
     "branch_material.sql",
+    "branch_storage_tank.sql",
+    "branch_fee.sql",
   ];
   const pool = createAppPool();
   try {

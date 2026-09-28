@@ -11,6 +11,7 @@ datasource db {
 enum SapModule {
   PR
   PO
+  
 
   @@map("sap_module")
   @@schema("public")
@@ -275,6 +276,8 @@ model ShippingPoint {
   versions ShippingPointVersion[]
   audits   ShippingPointAudit[]
   terminals Terminal[]
+  storageTanks StorageTank[] @relation("TankShippingPoint")
+  dispatchedTanks StorageTank[] @relation("TankDispatcherPoint")
 
   @@map("shipping_point")
   @@schema("branch")
@@ -334,6 +337,7 @@ model Vendor {
   versions VendorVersion[]
   audits   VendorAudit[]
   terminals Terminal[]
+  storageTanks StorageTank[]
 
   @@map("vendor")
   @@schema("branch")
@@ -470,6 +474,7 @@ model Uom {
   materialsAlt    Material[] @relation("MaterialAltUom")
   materialsWeight Material[] @relation("MaterialWeightUom")
   materialsVolume Material[] @relation("MaterialVolumeUom")
+  tankCapacities  StorageTank[] @relation("TankCapacityUom")
 
   @@map("uom")
   @@schema("branch")
@@ -554,6 +559,7 @@ model Material {
   volumeUom Uom? @relation("MaterialVolumeUom", fields: [volumeUomId], references: [id])
   versions  MaterialVersion[]
   audits    MaterialAudit[]
+  storageTanks StorageTank[]
 
   @@map("material")
   @@schema("branch")
@@ -586,5 +592,141 @@ model MaterialAudit {
   material Material @relation(fields: [materialId], references: [id])
 
   @@map("material_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.10 Storage Tank. SAFETY approval. legal_entity_id has no FK until WBS 2.1 exists.
+model StorageTank {
+  id                String    @id @default(uuid())
+  code              String
+  name              String
+  ownership         String
+  materialId        String    @map("material_id")
+  legalEntityId     String?   @map("legal_entity_id")
+  shippingPointId   String?   @map("shipping_point_id")
+  customerCode      String?   @map("customer_code")
+  vendorId          String?   @map("vendor_id")
+  dispatcherPointId String?   @map("dispatcher_point_id")
+  capacityL         Decimal   @map("capacity_l") @db.Decimal(18, 3)
+  safeFillL         Decimal   @map("safe_fill_l") @db.Decimal(18, 3)
+  safetyStockL      Decimal?  @map("safety_stock_l") @db.Decimal(18, 3)
+  reorderL          Decimal?  @map("reorder_l") @db.Decimal(18, 3)
+  capacityUomId     String?   @map("capacity_uom_id")
+  gaugeType         String?   @map("gauge_type")
+  gaugeDeviceRef    String?   @map("gauge_device_ref")
+  lastCalibration   DateTime? @map("last_calibration") @db.Date
+  inspectionDue     DateTime? @map("inspection_due") @db.Date
+  certificate       String?
+  validFrom         DateTime  @map("valid_from") @db.Date
+  validTo           DateTime? @map("valid_to") @db.Date
+  reason            String
+  changeNote        String?   @map("change_note")
+  status            String
+  versionNo         Int       @default(1) @map("version_no")
+  externalId        String?   @map("external_id")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  material        Material       @relation(fields: [materialId], references: [id])
+  shippingPoint   ShippingPoint? @relation("TankShippingPoint", fields: [shippingPointId], references: [id])
+  vendor          Vendor?        @relation(fields: [vendorId], references: [id])
+  dispatcherPoint ShippingPoint? @relation("TankDispatcherPoint", fields: [dispatcherPointId], references: [id])
+  capacityUom     Uom?           @relation("TankCapacityUom", fields: [capacityUomId], references: [id])
+  versions        StorageTankVersion[]
+  audits          StorageTankAudit[]
+
+  @@map("storage_tank")
+  @@schema("branch")
+}
+
+model StorageTankVersion {
+  id            String   @id @default(uuid())
+  storageTankId String   @map("storage_tank_id")
+  versionNo     Int      @map("version_no")
+  snapshot      Json
+  recordedAt    DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy    String?  @map("recorded_by")
+
+  storageTank StorageTank @relation(fields: [storageTankId], references: [id])
+
+  @@unique([storageTankId, versionNo], map: "storage_tank_version_udx")
+  @@map("storage_tank_version")
+  @@schema("branch")
+}
+
+model StorageTankAudit {
+  id            String   @id @default(uuid())
+  storageTankId String   @map("storage_tank_id")
+  action        String
+  actor         String?
+  note          String?
+  payload       Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  storageTank StorageTank @relation(fields: [storageTankId], references: [id])
+
+  @@map("storage_tank_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.11 Fee Catalogue. FINANCIAL approval. feeType is free text.
+model Fee {
+  id         String    @id @default(uuid())
+  code       String
+  name       String
+  feeType    String    @map("fee_type")
+  chargeType String    @map("charge_type")
+  rate       Decimal   @db.Decimal(14, 2)
+  currency   String    @default("INR")
+  validFrom  DateTime  @map("valid_from") @db.Date
+  validTo    DateTime? @map("valid_to") @db.Date
+  reason     String
+  changeNote String?   @map("change_note")
+  status     String
+  versionNo  Int       @default(1) @map("version_no")
+  externalId String?   @map("external_id")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy  String?   @map("created_by")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy  String?   @map("updated_by")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions FeeVersion[]
+  audits   FeeAudit[]
+
+  @@map("fee")
+  @@schema("branch")
+}
+
+model FeeVersion {
+  id         String   @id @default(uuid())
+  feeId      String   @map("fee_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  fee Fee @relation(fields: [feeId], references: [id])
+
+  @@unique([feeId, versionNo], map: "fee_version_udx")
+  @@map("fee_version")
+  @@schema("branch")
+}
+
+model FeeAudit {
+  id        String   @id @default(uuid())
+  feeId     String   @map("fee_id")
+  action    String
+  actor     String?
+  note      String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  fee Fee @relation(fields: [feeId], references: [id])
+
+  @@map("fee_audit")
   @@schema("branch")
 }

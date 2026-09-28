@@ -5,7 +5,9 @@ import { LoginController } from "@/app/api-services/controllers/login.controller
 import { ShippingPointController } from "@/app/api-services/controllers/shipping-point.controller";
 import { GeoController } from "@/app/api-services/controllers/geo.controller";
 import { TerminalController } from "@/app/api-services/controllers/terminal.controller";
+import { FeeController } from "@/app/api-services/controllers/fee.controller";
 import { MaterialController } from "@/app/api-services/controllers/material.controller";
+import { StorageTankController } from "@/app/api-services/controllers/storage-tank.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -14,21 +16,27 @@ import { IamRepository } from "@/app/api-services/repositories/iam.repository";
 import { ShippingPointRepository } from "@/app/api-services/repositories/shipping-point.repository";
 import { GeoRepository } from "@/app/api-services/repositories/geo.repository";
 import { TerminalRepository } from "@/app/api-services/repositories/terminal.repository";
+import { FeeRepository } from "@/app/api-services/repositories/fee.repository";
 import { MaterialRepository } from "@/app/api-services/repositories/material.repository";
+import { StorageTankRepository } from "@/app/api-services/repositories/storage-tank.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
 import { ShippingPointRoutes } from "@/app/api-services/routes/shipping-point.routes";
 import { GeoRoutes } from "@/app/api-services/routes/geo.routes";
 import { TerminalRoutes } from "@/app/api-services/routes/terminal.routes";
+import { FeeRoutes } from "@/app/api-services/routes/fee.routes";
 import { MaterialRoutes } from "@/app/api-services/routes/material.routes";
+import { StorageTankRoutes } from "@/app/api-services/routes/storage-tank.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
 import { ShippingPointService } from "@/app/api-services/services/shipping-point.service";
 import { GeoService } from "@/app/api-services/services/geo.service";
 import { TerminalService } from "@/app/api-services/services/terminal.service";
+import { FeeService } from "@/app/api-services/services/fee.service";
 import { MaterialService } from "@/app/api-services/services/material.service";
+import { StorageTankService } from "@/app/api-services/services/storage-tank.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -52,6 +60,10 @@ const uomController = new UomController(new UomService(uomRepository));
 const materialController = new MaterialController(
   new MaterialService(new MaterialRepository(pool), uomRepository),
 );
+const storageTankController = new StorageTankController(
+  new StorageTankService(new StorageTankRepository(pool)),
+);
+const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
 const geoRepository = new GeoRepository(pool);
 const geoController = new GeoController(new GeoService(geoRepository));
 const terminalController = new TerminalController(
@@ -64,6 +76,8 @@ const routes = [
   ...new VendorRoutes(vendorController).register(),
   ...new UomRoutes(uomController).register(),
   ...new MaterialRoutes(materialController).register(),
+  ...new StorageTankRoutes(storageTankController).register(),
+  ...new FeeRoutes(feeController).register(),
   ...new GeoRoutes(geoController).register(),
   ...new TerminalRoutes(terminalController).register(),
 ];

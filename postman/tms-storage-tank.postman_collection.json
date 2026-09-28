@@ -1,0 +1,547 @@
+{
+  "info": {
+    "_postman_id": "a7e2c91d-6b14-4f08-9c33-tms-storage-tank",
+    "name": "TMS — Storage Tank (WBS 2.10)",
+    "description": "Storage Tank APIs on the Node process (port 3001). No UI. No sap-upsert. No import/export.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + parents** first. Scripts save `token`, `materialId` (published Material), `shippingPointId`, `vendorId` (published SUPPLIER), `capacityUomId` (UOM L).\n4. `legalEntityId` is a placeholder UUID. OWN requires the field; it is not looked up.\n5. No trailing slash. Port **3001**, not 3000.\n\n## Status (SAFETY)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nPATCH on PUBLISHED or REJECTED → **DRAFT**\nPATCH on PENDING → 409\n`code` is locked after first save\n\n## Ownership\n- OWN: `legalEntityId` + `shippingPointId`. `vendorId`, `customerCode`, `dispatcherPointId` must be empty.\n- CUSTOMER: `customerCode` + `shippingPointId`. `legalEntityId`, `vendorId`, `dispatcherPointId` must be empty.\n- SUPPLIER: `vendorId` (published SUPPLIER) + `dispatcherPointId` (published Shipping Point). `legalEntityId`, `customerCode`, `shippingPointId` must be empty.\n- `safeFillL` must be > 0 and <= `capacityL`. `materialId` must be a published Material.\n\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "materialId", "value": "" },
+    { "key": "shippingPointId", "value": "" },
+    { "key": "vendorId", "value": "" },
+    { "key": "capacityUomId", "value": "" },
+    { "key": "legalEntityId", "value": "11111111-1111-4111-8111-111111111111" },
+    { "key": "tankId", "value": "" },
+    { "key": "rejectTankId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Material — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const hsd = rows.find((r) => r.code === 'HSD-BS-VI') || rows[0];",
+                  "  if (hsd && hsd.id) pm.collectionVariables.set('materialId', hsd.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/materials",
+            "description": "Published materials only. Prefers HSD-BS-VI, otherwise the first row. Saves {{materialId}}."
+          }
+        },
+        {
+          "name": "03 Lookups Shipping Point — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  if (rows[0] && rows[0].id) pm.collectionVariables.set('shippingPointId', rows[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/shipping-points",
+            "description": "Published shipping points. Saves the first id to {{shippingPointId}}. Used for OWN/CUSTOMER and as the SUPPLIER dispatcher point."
+          }
+        },
+        {
+          "name": "04 Lookups Vendor SUPPLIER — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  if (rows[0] && rows[0].id) pm.collectionVariables.set('vendorId', rows[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/vendors?type=SUPPLIER",
+            "description": "Published active vendors of type SUPPLIER. Saves {{vendorId}}."
+          }
+        },
+        {
+          "name": "05 Lookups UOM — save L",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const litre = rows.find((r) => r.code === 'L');",
+                  "  if (litre && litre.id) pm.collectionVariables.set('capacityUomId', litre.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/uom",
+            "description": "Published UOMs. Saves code L to {{capacityUomId}}. capacityUomId is optional on create."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. POST create (DRAFT)",
+      "item": [
+        {
+          "name": "06 POST OWN — required fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('tankId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-OWN-PM\",\n  \"name\": \"Own tank Postman\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 40000,\n  \"safeFillL\": 36000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Saves {{tankId}}. 409 if TK-OWN-PM already exists."
+          }
+        },
+        {
+          "name": "07 POST OWN — full optional fields",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-OWN-FULL\",\n  \"name\": \"Own tank full\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 50000,\n  \"safeFillL\": 45000,\n  \"safetyStockL\": 8000,\n  \"reorderL\": 12000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"gaugeType\": \"Radar\",\n  \"gaugeDeviceRef\": \"G-100\",\n  \"lastCalibration\": \"2026-01-15\",\n  \"inspectionDue\": \"2027-01-15\",\n  \"certificate\": \"PESO-100\",\n  \"validFrom\": \"2026-01-01\",\n  \"validTo\": \"2027-12-31\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Full create\",\n  \"externalId\": \"TANK-OWN-FULL\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "Every optional field. Does not overwrite {{tankId}}. Unknown keys, including status, are rejected."
+          }
+        },
+        {
+          "name": "08 POST CUSTOMER",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-CUS-PM\",\n  \"name\": \"Customer tank\",\n  \"ownership\": \"CUSTOMER\",\n  \"materialId\": \"{{materialId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"customerCode\": \"CUST-100\",\n  \"capacityL\": 8000,\n  \"safeFillL\": 7000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "customerCode is text. There is no customer foreign key. 201 DRAFT."
+          }
+        },
+        {
+          "name": "09 POST SUPPLIER",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-SUP-PM\",\n  \"name\": \"Supplier tank\",\n  \"ownership\": \"SUPPLIER\",\n  \"materialId\": \"{{materialId}}\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"dispatcherPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 20000,\n  \"safeFillL\": 18000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "vendorId must be a published SUPPLIER. dispatcherPointId must be a published Shipping Point. Do not send shippingPointId on SUPPLIER."
+          }
+        },
+        {
+          "name": "10 POST OWN — missing legalEntityId (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-OWN-NOLE\",\n  \"name\": \"Own without LE\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 40000,\n  \"safeFillL\": 36000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "400 { code: VALIDATION, field: legalEntityId }."
+          }
+        },
+        {
+          "name": "11 POST — safeFillL above capacityL (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-BAD-FILL\",\n  \"name\": \"Overfill\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 40000,\n  \"safeFillL\": 50000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "400 { code: VALIDATION, field: safeFillL }."
+          }
+        },
+        {
+          "name": "12 POST CUSTOMER — missing customerCode (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-CUS-BAD\",\n  \"name\": \"Customer missing code\",\n  \"ownership\": \"CUSTOMER\",\n  \"materialId\": \"{{materialId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 8000,\n  \"safeFillL\": 7000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "400 { code: VALIDATION, field: customerCode }."
+          }
+        },
+        {
+          "name": "13 POST — material not found (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-BAD-MAT\",\n  \"name\": \"Unknown material\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"00000000-0000-4000-8000-000000000099\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 40000,\n  \"safeFillL\": 36000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "400 { code: PARENT_NOT_FOUND, field: materialId }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. OWN workflow",
+      "item": [
+        {
+          "name": "14 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}",
+            "description": "200 full row. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "15 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks?q=TK-OWN-PM&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. status filter: DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED."
+          }
+        },
+        {
+          "name": "16 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}/submit",
+            "description": "DRAFT → PENDING. 200 { status: PENDING }. Empty reason → 400. Not DRAFT → 409."
+          }
+        },
+        {
+          "name": "17 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-OWN-PM\",\n  \"name\": \"Own tank amended\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 40000,\n  \"safeFillL\": 35000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}",
+            "description": "409 { code: LOCKED }. PENDING cannot be amended. versionNo after submit is 2."
+          }
+        },
+        {
+          "name": "18 POST approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }. note is optional. Only PENDING can be approved."
+          }
+        },
+        {
+          "name": "19 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/storage-tanks",
+            "description": "200 [{ id, code, name }] for PUBLISHED tanks. TK-OWN-PM appears after approve. DRAFT and PENDING tanks are omitted."
+          }
+        },
+        {
+          "name": "20 GET by id — refresh version after approve",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}",
+            "description": "After create, submit, and approve, versionNo is 3. This request saves it before the published PATCH."
+          }
+        },
+        {
+          "name": "21 PATCH published — back to DRAFT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-OWN-PM\",\n  \"name\": \"Own tank amended\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 40000,\n  \"safeFillL\": 35000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Amend published tank\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}",
+            "description": "200 { id, versionNo, status: DRAFT }. Changing code → 409 LOCKED. Wrong versionNo → 409 STALE_VERSION. Run request 20 first so {{versionNo}} is current."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reject path",
+      "item": [
+        {
+          "name": "22 POST create — reject sample",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('rejectTankId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"TK-REJ-PM\",\n  \"name\": \"Tank to reject\",\n  \"ownership\": \"OWN\",\n  \"materialId\": \"{{materialId}}\",\n  \"legalEntityId\": \"{{legalEntityId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"capacityL\": 10000,\n  \"safeFillL\": 9000,\n  \"validFrom\": \"2026-01-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks",
+            "description": "201 DRAFT. Saves {{rejectTankId}}. Does not replace {{tankId}}."
+          }
+        },
+        {
+          "name": "23 POST submit reject sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit for reject test\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{rejectTankId}}/submit",
+            "description": "DRAFT → PENDING."
+          }
+        },
+        {
+          "name": "24 POST reject — missing note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{rejectTankId}}/reject",
+            "description": "400 { code: VALIDATION, field: note }."
+          }
+        },
+        {
+          "name": "25 POST reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Capacity certificate missing\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{rejectTankId}}/reject",
+            "description": "PENDING → REJECTED. 200 { status: REJECTED }. Only PENDING can be rejected."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Reads",
+      "item": [
+        {
+          "name": "26 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}/versions",
+            "description": "200 { versions: [{ versionNo, snapshot, recordedAt, recordedBy }] }."
+          }
+        },
+        {
+          "name": "27 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/{{tankId}}/audit",
+            "description": "200 { events: [{ action, actor, note, payload, createdAt }] }. Actions include CREATE, SUBMIT, APPROVE, UPDATE."
+          }
+        },
+        {
+          "name": "28 GET unknown id (expect 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/storage-tanks/00000000-0000-4000-8000-000000000001",
+            "description": "404 { code: NOT_FOUND }. A non-UUID path also returns 404."
+          }
+        }
+      ]
+    }
+  ]
+}

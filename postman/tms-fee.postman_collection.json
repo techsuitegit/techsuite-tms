@@ -1,0 +1,415 @@
+{
+  "info": {
+    "_postman_id": "b4c8e17a-2d61-4f90-8a55-tms-fee",
+    "name": "TMS — Fee Catalogue (WBS 2.11)",
+    "description": "Fee Catalogue APIs on the Node process (port 3001). No UI. No sap-upsert.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run **01 Login** first. The script saves `token`.\n4. No parent master. No trailing slash. Port **3001**, not 3000.\n5. Codes `FEE-HALT` and `FEE-TOLL` may already exist from local checks. This collection uses `FEE-HALT-PM`, `FEE-TOLL-PM`, `FEE-REJ-PM`, and `FEE-IMP-PM`. A second run of the same code returns 409.\n\n## Status (FINANCIAL)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nPATCH rate on **PUBLISHED** → **PENDING**\nPATCH any other field on **PUBLISHED** → **DRAFT**\nPATCH on **PENDING** → 409\nPATCH on **REJECTED** → **DRAFT**\n\n## Rules\n- `rate` must be a number greater than 0, at most 2 decimal places.\n- `chargeType`: FLAT_PER_DELIVERY | PER_VOLUME | PER_STOP | PER_HOUR | PER_CYLINDER.\n- `feeType` is free text. Suggested values are Halting Charges, Toll Fee, Driver Batta Fee, Waiting Charges, Detention. A new string is allowed.\n- `currency` defaults to INR when omitted.\n- `versionNo` on PATCH must match the current row. Read it with GET first.\n- GET `/lookups/fees` returns PUBLISHED only.\n- Export returns DRAFT and PUBLISHED rows. A PENDING fee is omitted.\n- Import is row-level: one bad row does not reject the file.\n\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "feeId", "value": "" },
+    { "key": "rejectFeeId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. POST create (DRAFT)",
+      "item": [
+        {
+          "name": "02 POST create — required fields",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('feeId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-HALT-PM\",\n  \"name\": \"Halting Charges\",\n  \"feeType\": \"Halting Charges\",\n  \"chargeType\": \"PER_HOUR\",\n  \"rate\": 450,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. currency defaults to INR. Saves {{feeId}}. 409 if FEE-HALT-PM already exists."
+          }
+        },
+        {
+          "name": "03 POST create — full optional fields",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-TOLL-PM\",\n  \"name\": \"Toll Fee\",\n  \"feeType\": \"Night convoy toll\",\n  \"chargeType\": \"FLAT_PER_DELIVERY\",\n  \"rate\": 120.5,\n  \"currency\": \"INR\",\n  \"validFrom\": \"2026-04-01\",\n  \"validTo\": \"2026-12-31\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Full catalogue create\",\n  \"externalId\": \"FEE-TOLL-PM\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees",
+            "description": "feeType may be any new string. Does not overwrite {{feeId}}. Unknown keys, including status, are rejected."
+          }
+        },
+        {
+          "name": "04 POST create — rate 0 (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-ZERO\",\n  \"name\": \"Zero rate\",\n  \"feeType\": \"Halting Charges\",\n  \"chargeType\": \"PER_HOUR\",\n  \"rate\": 0,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees",
+            "description": "400 { code: VALIDATION, field: rate }."
+          }
+        },
+        {
+          "name": "05 POST create — unknown chargeType (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-DEM\",\n  \"name\": \"Demurrage\",\n  \"feeType\": \"Detention\",\n  \"chargeType\": \"DEMURRAGE\",\n  \"rate\": 100,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees",
+            "description": "400 { code: VALIDATION, field: chargeType }. Haulier demurrage is not a Fee Catalogue charge type."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. FINANCIAL workflow",
+      "item": [
+        {
+          "name": "06 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}",
+            "description": "200 full row. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "07 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees?q=FEE-HALT-PM&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. status filter: DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED."
+          }
+        },
+        {
+          "name": "08 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}/submit",
+            "description": "DRAFT → PENDING. 200 { status: PENDING }. Empty reason → 400. Not DRAFT → 409."
+          }
+        },
+        {
+          "name": "09 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-HALT-PM\",\n  \"name\": \"Halting Charges\",\n  \"feeType\": \"Halting Charges\",\n  \"chargeType\": \"PER_HOUR\",\n  \"rate\": 450,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}",
+            "description": "409 { code: LOCKED }. PENDING cannot be amended. versionNo after submit is 2."
+          }
+        },
+        {
+          "name": "10 POST approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }. Requires mdm.master.approve. Only PENDING can be approved."
+          }
+        },
+        {
+          "name": "11 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/fees",
+            "description": "200 [{ id, code, name }]. FEE-HALT-PM appears after approve."
+          }
+        },
+        {
+          "name": "12 GET by id — refresh version after approve",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}",
+            "description": "After create, submit, and approve, versionNo is 3. Run this before the rate PATCH."
+          }
+        },
+        {
+          "name": "13 PATCH published rate — back to PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-HALT-PM\",\n  \"name\": \"Halting Charges\",\n  \"feeType\": \"Halting Charges\",\n  \"chargeType\": \"PER_HOUR\",\n  \"rate\": 500,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Rate increase\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}",
+            "description": "200 { id, versionNo, status: PENDING }. A rate change on a published fee needs approval again. Wrong versionNo → 409 STALE_VERSION. Run request 12 first."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reject path",
+      "item": [
+        {
+          "name": "14 POST create — reject sample",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('rejectFeeId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FEE-REJ-PM\",\n  \"name\": \"Waiting Charges\",\n  \"feeType\": \"Waiting Charges\",\n  \"chargeType\": \"PER_STOP\",\n  \"rate\": 75,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees",
+            "description": "201 DRAFT. Saves {{rejectFeeId}}. Does not replace {{feeId}}."
+          }
+        },
+        {
+          "name": "15 POST submit reject sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit for reject test\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{rejectFeeId}}/submit",
+            "description": "DRAFT → PENDING."
+          }
+        },
+        {
+          "name": "16 POST reject — missing note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{rejectFeeId}}/reject",
+            "description": "400 { code: VALIDATION, field: note }."
+          }
+        },
+        {
+          "name": "17 POST reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Rate not agreed\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{rejectFeeId}}/reject",
+            "description": "PENDING → REJECTED. 200 { status: REJECTED }. Requires mdm.master.approve."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import, export, reads",
+      "item": [
+        {
+          "name": "18 POST import — one accepted, one rejected",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"FEE-IMP-PM\",\n    \"name\": \"Driver Batta\",\n    \"feeType\": \"Driver Batta Fee\",\n    \"chargeType\": \"PER_CYLINDER\",\n    \"rate\": 25,\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"FEE-IMP-BAD\",\n    \"name\": \"Bad rate\",\n    \"feeType\": \"Detention\",\n    \"chargeType\": \"PER_HOUR\",\n    \"rate\": 0,\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/fees/import",
+            "description": "200 { accepted: [{ id, code }], rejected: [{ row, code, message, field }] }. Row 1 is created as DRAFT. Row 2 fails on rate 0 and does not roll back row 1. CSV is also accepted with Content-Type text/csv."
+          }
+        },
+        {
+          "name": "19 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees/export",
+            "description": "CSV of DRAFT and PUBLISHED fees. FEE-HALT-PM is omitted after request 13 because that rate change is PENDING. FEE-TOLL-PM and FEE-IMP-PM are included."
+          }
+        },
+        {
+          "name": "20 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}/versions",
+            "description": "200 { versions: [{ versionNo, snapshot, recordedAt, recordedBy }] }."
+          }
+        },
+        {
+          "name": "21 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees/{{feeId}}/audit",
+            "description": "200 { events: [{ action, actor, note, payload, createdAt }] }. Actions include CREATE, SUBMIT, APPROVE, UPDATE."
+          }
+        },
+        {
+          "name": "22 GET unknown id (expect 404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/fees/00000000-0000-4000-8000-000000000001",
+            "description": "404 { code: NOT_FOUND }."
+          }
+        }
+      ]
+    }
+  ]
+}
