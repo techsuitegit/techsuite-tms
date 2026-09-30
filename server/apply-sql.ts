@@ -40,6 +40,7 @@ async function main() {
     "branch_pricing_procedure.sql",
     "branch_vehicle.sql",
     "branch_ptl_threshold.sql",
+    "branch_cylinder.sql",
   ];
   const pool = createAppPool();
   try {

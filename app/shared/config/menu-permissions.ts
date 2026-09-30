@@ -14,7 +14,6 @@ export type MenuNavItem = {
 export const MASTER_MENU_ITEMS: MenuChildItem[] = [
   { key: "ShippingPoint", href: "/masters/shipping-point", label: "Shipping Point" },
   { key: "CostCenter", href: "/masters/cost-center", label: "Cost Center" },
-  { key: "Cylinder", href: "/masters/cylinder", label: "Cylinder" },
   { key: "Telemetry", href: "/masters/telemetry", label: "Telemetry" },
   { key: "Haulier", href: "/masters/haulier", label: "Haulier" },
   { key: "VendorSupplier", href: "/masters/vendor-supplier", label: "Vendor / Supplier" },

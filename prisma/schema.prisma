@@ -280,6 +280,7 @@ model ShippingPoint {
   storageTanks StorageTank[] @relation("TankShippingPoint")
   dispatchedTanks StorageTank[] @relation("TankDispatcherPoint")
   vehicles Vehicle[]
+  cylinders Cylinder[]
 
   @@map("shipping_point")
   @@schema("branch")
@@ -564,6 +565,7 @@ model Material {
   audits    MaterialAudit[]
   storageTanks StorageTank[]
   vehicleCompartments VehicleCompartment[]
+  cylinders Cylinder[]
 
   @@map("material")
   @@schema("branch")
@@ -975,5 +977,73 @@ model PtlThresholdAudit {
   threshold PtlThreshold @relation(fields: [ptlThresholdId], references: [id])
 
   @@map("ptl_threshold_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.15 Cylinder. SAFETY approval. Not a storage tank.
+/// Applied via sql/branch_cylinder.sql. Do not expose a UI.
+model Cylinder {
+  id                  String    @id @default(uuid())
+  code                String
+  serial              String
+  rfid                String?
+  size                String
+  materialId          String    @map("material_id")
+  tareKg              Decimal   @map("tare_kg") @db.Decimal(18, 3)
+  fillCapacity        Decimal   @map("fill_capacity") @db.Decimal(18, 3)
+  valveType           String?   @map("valve_type")
+  requalificationDue  DateTime  @map("requalification_due") @db.Date
+  custodyState        String    @map("custody_state")
+  locationText        String?   @map("location_text")
+  shippingPointId     String?   @map("shipping_point_id")
+  validFrom           DateTime  @map("valid_from") @db.Date
+  validTo             DateTime? @map("valid_to") @db.Date
+  reason              String
+  changeNote          String?   @map("change_note")
+  status              String
+  versionNo           Int       @default(1) @map("version_no")
+  externalId          String?   @map("external_id")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy           String?   @map("created_by")
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy           String?   @map("updated_by")
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  material      Material       @relation(fields: [materialId], references: [id])
+  shippingPoint ShippingPoint? @relation(fields: [shippingPointId], references: [id])
+  versions      CylinderVersion[]
+  audits        CylinderAudit[]
+
+  @@map("cylinder")
+  @@schema("branch")
+}
+
+model CylinderVersion {
+  id         String   @id @default(uuid())
+  cylinderId String   @map("cylinder_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  cylinder Cylinder @relation(fields: [cylinderId], references: [id])
+
+  @@unique([cylinderId, versionNo], map: "cylinder_version_udx")
+  @@map("cylinder_version")
+  @@schema("branch")
+}
+
+model CylinderAudit {
+  id         String   @id @default(uuid())
+  cylinderId String   @map("cylinder_id")
+  action     String
+  actor      String?
+  note       String?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  cylinder Cylinder @relation(fields: [cylinderId], references: [id])
+
+  @@map("cylinder_audit")
   @@schema("branch")
 }
