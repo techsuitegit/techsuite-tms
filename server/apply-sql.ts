@@ -42,6 +42,7 @@ async function main() {
     "branch_ptl_threshold.sql",
     "branch_cylinder.sql",
     "branch_telemetry_device.sql",
+    "branch_haulier.sql",
   ];
   const pool = createAppPool();
   try {

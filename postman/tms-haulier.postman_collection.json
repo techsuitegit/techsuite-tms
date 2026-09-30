@@ -1,0 +1,578 @@
+{
+  "info": {
+    "_postman_id": "f17a6b4c-9d53-4e2a-b244-tms-haulier",
+    "name": "TMS — Haulier (WBS 2.17)",
+    "description": "Haulier APIs on the Node process (port 3001). No UI. No sap-upsert. Not a Vendor. Rates are for cost reporting. They do not post invoices.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run **01 Login** first. There is no parent master. `zoneIds` are UUIDs with no foreign key until Zone exists.\n4. No trailing slash. Port **3001**, not 3000.\n5. Codes `H-COL-01`, `H-COL-RATE`, `H-COL-EXP`, `H-COL-REJ`, and `H-COL-IMP` may already exist after one run. A second run of the same code returns 409.\n\n## Status (FINANCIAL)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nPATCH on PENDING → 409\nPATCH on PUBLISHED that changes `rate` → **PENDING**\nPATCH on PUBLISHED that leaves `rate` unchanged → **DRAFT**\nPATCH on REJECTED → **DRAFT**\n\n## Expiring\nList and get set `expiring: true` when `contractEnd` is before today plus 60 days. The status does not change.\n\nvehicleTypes: BOBTAIL_LPG | BOBTAIL_REFINED | TRANSPORT_TRACTOR | TANK_TRAILER | CYLINDER_TRUCK\nrateBasis: PER_TRIP | PER_KM | PER_TONNE | PER_HOUR | PER_LITRE\nsurchargeUnit: PCT | AMT. Default PCT.\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "haulierId", "value": "" },
+    { "key": "rateHaulierId", "value": "" },
+    { "key": "rejectHaulierId", "value": "" },
+    { "key": "versionNo", "value": "1" },
+    { "key": "rateVersionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path",
+      "item": [
+        {
+          "name": "02 POST create",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('haulierId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-01\",\n  \"name\": \"Chinook Bulk Haulage Inc.\",\n  \"vehicleTypes\": [\"BOBTAIL_LPG\", \"TRANSPORT_TRACTOR\"],\n  \"zoneIds\": [\"11111111-1111-4111-8111-111111111111\"],\n  \"hazmatCertified\": true,\n  \"rateBasis\": \"PER_KM\",\n  \"rate\": 2.85,\n  \"fuelSurcharge\": 8,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"paymentTermsText\": \"30 days\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Saves {{haulierId}}. zoneIds are stored with no Zone foreign key. surchargeUnit defaults to PCT. contractEnd 2027-12-31 is not expiring."
+          }
+        },
+        {
+          "name": "03 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}",
+            "description": "200 full haulier plus expiring. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "04 GET list — not expiring",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers?q=H-COL-01&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. H-COL-01 has expiring false. q matches code or name."
+          }
+        },
+        {
+          "name": "05 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}/submit",
+            "description": "DRAFT → PENDING. 200 { status: PENDING }. versionNo becomes 2."
+          }
+        },
+        {
+          "name": "06 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-01\",\n  \"name\": \"Chinook Bulk Haulage Inc.\",\n  \"vehicleTypes\": [\"BOBTAIL_LPG\", \"TRANSPORT_TRACTOR\"],\n  \"hazmatCertified\": true,\n  \"rateBasis\": \"PER_KM\",\n  \"rate\": 2.85,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}",
+            "description": "409 { code: LOCKED }. PENDING cannot be amended."
+          }
+        },
+        {
+          "name": "07 POST approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }. Requires mdm.master.approve. versionNo becomes 3."
+          }
+        },
+        {
+          "name": "08 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/hauliers",
+            "description": "200 [{ id, code, name }]. name is the company name. Run after approve."
+          }
+        },
+        {
+          "name": "09 GET by id — refresh version after approve",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}",
+            "description": "Refreshes {{versionNo}}. After create, submit, and approve it is 3."
+          }
+        },
+        {
+          "name": "10 PATCH published — same rate returns DRAFT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-01\",\n  \"name\": \"Chinook Bulk Haulage Inc.\",\n  \"vehicleTypes\": [\"BOBTAIL_LPG\", \"TRANSPORT_TRACTOR\"],\n  \"zoneIds\": [\"11111111-1111-4111-8111-111111111111\"],\n  \"hazmatCertified\": true,\n  \"rateBasis\": \"PER_KM\",\n  \"rate\": 2.85,\n  \"fuelSurcharge\": 8,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"paymentTermsText\": \"45 days\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Payment terms text only\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}",
+            "description": "200 { status: DRAFT }. rate is still 2.85, so this is not a financial re-approval. Run request 09 first."
+          }
+        },
+        {
+          "name": "11 PATCH stale version (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-01\",\n  \"name\": \"Chinook Bulk Haulage Inc.\",\n  \"vehicleTypes\": [\"BOBTAIL_LPG\"],\n  \"hazmatCertified\": true,\n  \"rateBasis\": \"PER_KM\",\n  \"rate\": 2.85,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}",
+            "description": "409 { code: STALE_VERSION }. versionNo 1 is no longer current."
+          }
+        },
+        {
+          "name": "12 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}/versions",
+            "description": "200 { versions }. One snapshot per versionNo."
+          }
+        },
+        {
+          "name": "13 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{haulierId}}/audit",
+            "description": "200 { events } for CREATE, SUBMIT, APPROVE, and UPDATE."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Rate change",
+      "item": [
+        {
+          "name": "14 POST create — rate sample",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 && pm.response.json().id) {",
+                  "  pm.collectionVariables.set('rateHaulierId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-RATE\",\n  \"name\": \"Rate Change Haul\",\n  \"vehicleTypes\": [\"TANK_TRAILER\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_TRIP\",\n  \"rate\": 2.85,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "201 DRAFT. Saves {{rateHaulierId}} and does not replace {{haulierId}}."
+          }
+        },
+        {
+          "name": "15 POST submit rate sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit rate sample\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rateHaulierId}}/submit",
+            "description": "DRAFT → PENDING."
+          }
+        },
+        {
+          "name": "16 POST approve rate sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Rate approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rateHaulierId}}/approve",
+            "description": "PENDING → PUBLISHED."
+          }
+        },
+        {
+          "name": "17 GET rate sample — refresh version",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().versionNo) {",
+                  "  pm.collectionVariables.set('rateVersionNo', String(pm.response.json().versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rateHaulierId}}",
+            "description": "Saves {{rateVersionNo}}. After create, submit, and approve it is 3."
+          }
+        },
+        {
+          "name": "18 PATCH published rate — returns PENDING",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-RATE\",\n  \"name\": \"Rate Change Haul\",\n  \"vehicleTypes\": [\"TANK_TRAILER\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_TRIP\",\n  \"rate\": 3.10,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Rate 2.85 to 3.10\",\n  \"versionNo\": {{rateVersionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rateHaulierId}}",
+            "description": "200 { status: PENDING }. A published rate change must be approved again. Run request 17 first."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Expiring and validation",
+      "item": [
+        {
+          "name": "19 POST contract ending inside 60 days",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-EXP\",\n  \"name\": \"Short Contract Haul\",\n  \"vehicleTypes\": [\"CYLINDER_TRUCK\"],\n  \"hazmatCertified\": true,\n  \"rateBasis\": \"PER_HOUR\",\n  \"rate\": 95,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2026-11-01\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "201 DRAFT. contractEnd 2026-11-01 is before today plus 60 days, so the list marks it expiring. Status stays DRAFT."
+          }
+        },
+        {
+          "name": "20 GET list — expiring",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers?q=H-COL-EXP",
+            "description": "200. The H-COL-EXP item has expiring true. Run request 19 first."
+          }
+        },
+        {
+          "name": "21 POST contractEnd before start (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-BADDATE\",\n  \"name\": \"Bad dates\",\n  \"vehicleTypes\": [\"BOBTAIL_LPG\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_KM\",\n  \"rate\": 2.85,\n  \"contractStart\": \"2026-06-01\",\n  \"contractEnd\": \"2026-01-01\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "400 { code: VALIDATION, field: contractEnd }."
+          }
+        },
+        {
+          "name": "22 GET list — no token (expect 401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "401 when Authorization is missing."
+          }
+        },
+        {
+          "name": "23 POST invalid vehicle type (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-BADTYPE\",\n  \"name\": \"Bad type\",\n  \"vehicleTypes\": [\"TRUCK\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_KM\",\n  \"rate\": 2.85,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "400 { code: VALIDATION, field: vehicleTypes }. Values must match the Vehicle class enum."
+          }
+        },
+        {
+          "name": "24 POST rate 0 (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-NORATE\",\n  \"name\": \"Zero rate\",\n  \"vehicleTypes\": [\"BOBTAIL_REFINED\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_LITRE\",\n  \"rate\": 0,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "400 { code: VALIDATION, field: rate }. rate must be greater than 0."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Reject path",
+      "item": [
+        {
+          "name": "25 POST create — reject sample",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 && pm.response.json().id) {",
+                  "  pm.collectionVariables.set('rejectHaulierId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-REJ\",\n  \"name\": \"Reject Haul\",\n  \"vehicleTypes\": [\"BOBTAIL_REFINED\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_TONNE\",\n  \"rate\": 40,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-06-30\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers",
+            "description": "201 DRAFT. Saves {{rejectHaulierId}}."
+          }
+        },
+        {
+          "name": "26 POST submit reject sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit for reject test\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rejectHaulierId}}/submit",
+            "description": "DRAFT → PENDING."
+          }
+        },
+        {
+          "name": "27 POST reject — missing note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rejectHaulierId}}/reject",
+            "description": "400 { code: VALIDATION, field: note }. The row stays PENDING."
+          }
+        },
+        {
+          "name": "28 POST reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Insurance certificate is missing\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rejectHaulierId}}/reject",
+            "description": "PENDING → REJECTED. 200 { status: REJECTED }."
+          }
+        },
+        {
+          "name": "29 PATCH rejected — back to DRAFT",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"H-COL-REJ\",\n  \"name\": \"Reject Haul\",\n  \"vehicleTypes\": [\"BOBTAIL_REFINED\"],\n  \"hazmatCertified\": false,\n  \"rateBasis\": \"PER_TONNE\",\n  \"rate\": 40,\n  \"contractStart\": \"2026-01-01\",\n  \"contractEnd\": \"2027-06-30\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Insurance attached\",\n  \"versionNo\": 3\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/{{rejectHaulierId}}",
+            "description": "200 { status: DRAFT }. versionNo after create, submit, and reject is 3."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Import and export",
+      "item": [
+        {
+          "name": "30 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/export",
+            "description": "200 text/csv of DRAFT and PUBLISHED rows. PENDING is omitted."
+          }
+        },
+        {
+          "name": "31 POST import JSON",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"H-COL-IMP\",\n    \"name\": \"Imported Haul\",\n    \"vehicleTypes\": [\"TRANSPORT_TRACTOR\"],\n    \"hazmatCertified\": true,\n    \"rateBasis\": \"PER_KM\",\n    \"rate\": 3,\n    \"contractStart\": \"2026-01-01\",\n    \"contractEnd\": \"2027-12-31\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"H-COL-01\",\n    \"name\": \"Duplicate\",\n    \"vehicleTypes\": [\"BOBTAIL_LPG\"],\n    \"hazmatCertified\": false,\n    \"rateBasis\": \"PER_KM\",\n    \"rate\": 2.85,\n    \"contractStart\": \"2026-01-01\",\n    \"contractEnd\": \"2027-12-31\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/import",
+            "description": "200 { accepted, rejected }. Row 1 is accepted as DRAFT. Row 2 is rejected because code H-COL-01 already exists. One bad row does not roll back the file. Run request 02 first."
+          }
+        },
+        {
+          "name": "32 POST import Excel (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/vnd.ms-excel" }],
+            "body": {
+              "mode": "raw",
+              "raw": "not-a-csv",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/hauliers/import",
+            "description": "400 { message: CSV template mismatch }. Excel is not accepted. Send text/csv or a JSON array."
+          }
+        }
+      ]
+    }
+  ]
+}

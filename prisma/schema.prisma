@@ -1115,3 +1115,83 @@ model TelemetryDeviceAudit {
   @@map("telemetry_device_audit")
   @@schema("branch")
 }
+
+/// WBS 2.17 Haulier. FINANCIAL approval. Not a Vendor. zone_ids has no FK until WBS 2.2.
+/// Applied via sql/branch_haulier.sql. Do not expose a UI.
+model Haulier {
+  id                String    @id @default(uuid())
+  code              String
+  name              String
+  registration      String?
+  dispatchContact   String?   @map("dispatch_contact")
+  dispatchPhone     String?   @map("dispatch_phone")
+  email             String?
+  vehicleTypes      String[]  @map("vehicle_types")
+  unitsAvailable    Int?      @map("units_available")
+  zoneIds           String[]  @map("zone_ids")
+  hazmatCertified   Boolean   @map("hazmat_certified")
+  rateBasis         String    @map("rate_basis")
+  rate              Decimal   @db.Decimal(14, 2)
+  minCharge         Decimal?  @map("min_charge") @db.Decimal(14, 2)
+  demurrage         Decimal?  @db.Decimal(14, 2)
+  fuelSurcharge     Decimal?  @map("fuel_surcharge") @db.Decimal(14, 2)
+  surchargeUnit     String    @default("PCT") @map("surcharge_unit")
+  contractStart     DateTime  @map("contract_start") @db.Date
+  contractEnd       DateTime  @map("contract_end") @db.Date
+  insuranceExpiry   DateTime? @map("insurance_expiry") @db.Date
+  paymentTermsText  String?   @map("payment_terms_text")
+  rating            Decimal?  @db.Decimal(3, 2)
+  onTimePct         Decimal?  @map("on_time_pct") @db.Decimal(5, 2)
+  accuracyPct       Decimal?  @map("accuracy_pct") @db.Decimal(5, 2)
+  tripsYtd          Int?      @map("trips_ytd")
+  volumeYtd         Decimal?  @map("volume_ytd") @db.Decimal(14, 2)
+  notes             String?
+  validFrom         DateTime  @map("valid_from") @db.Date
+  validTo           DateTime? @map("valid_to") @db.Date
+  reason            String
+  changeNote        String?   @map("change_note")
+  status            String
+  versionNo         Int       @default(1) @map("version_no")
+  externalId        String?   @map("external_id")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions HaulierVersion[]
+  audits   HaulierAudit[]
+
+  @@map("haulier")
+  @@schema("branch")
+}
+
+model HaulierVersion {
+  id         String   @id @default(uuid())
+  haulierId  String   @map("haulier_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  haulier Haulier @relation(fields: [haulierId], references: [id])
+
+  @@unique([haulierId, versionNo], map: "haulier_version_udx")
+  @@map("haulier_version")
+  @@schema("branch")
+}
+
+model HaulierAudit {
+  id         String   @id @default(uuid())
+  haulierId  String   @map("haulier_id")
+  action     String
+  actor      String?
+  note       String?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  haulier Haulier @relation(fields: [haulierId], references: [id])
+
+  @@map("haulier_audit")
+  @@schema("branch")
+}
