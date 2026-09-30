@@ -341,6 +341,7 @@ model Vendor {
   audits   VendorAudit[]
   terminals Terminal[]
   storageTanks StorageTank[]
+  telemetryDevices TelemetryDevice[]
 
   @@map("vendor")
   @@schema("branch")
@@ -643,6 +644,7 @@ model StorageTank {
   capacityUom     Uom?           @relation("TankCapacityUom", fields: [capacityUomId], references: [id])
   versions        StorageTankVersion[]
   audits          StorageTankAudit[]
+  telemetryDevices TelemetryDevice[]
 
   @@map("storage_tank")
   @@schema("branch")
@@ -1045,5 +1047,71 @@ model CylinderAudit {
   cylinder Cylinder @relation(fields: [cylinderId], references: [id])
 
   @@map("cylinder_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.16 Telemetry Device. AUTO approval. Register only. No readings.
+/// Applied via sql/branch_telemetry_device.sql. Do not expose a UI.
+model TelemetryDevice {
+  id             String    @id @default(uuid())
+  code           String
+  vendorId       String    @map("vendor_id")
+  model          String?
+  imei           String?
+  pairingState   String    @map("pairing_state")
+  storageTankId  String?   @map("storage_tank_id")
+  cadence        String?
+  health         String
+  batteryPct     Int?      @map("battery_pct")
+  signal         String?
+  validFrom      DateTime  @map("valid_from") @db.Date
+  validTo        DateTime? @map("valid_to") @db.Date
+  reason         String
+  changeNote     String?   @map("change_note")
+  status         String
+  versionNo      Int       @default(1) @map("version_no")
+  externalId     String?   @map("external_id")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy      String?   @map("updated_by")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  vendor       Vendor               @relation(fields: [vendorId], references: [id])
+  storageTank  StorageTank?         @relation(fields: [storageTankId], references: [id])
+  versions     TelemetryDeviceVersion[]
+  audits       TelemetryDeviceAudit[]
+
+  @@map("telemetry_device")
+  @@schema("branch")
+}
+
+model TelemetryDeviceVersion {
+  id                String   @id @default(uuid())
+  telemetryDeviceId String   @map("telemetry_device_id")
+  versionNo         Int      @map("version_no")
+  snapshot          Json
+  recordedAt        DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy        String?  @map("recorded_by")
+
+  device TelemetryDevice @relation(fields: [telemetryDeviceId], references: [id])
+
+  @@unique([telemetryDeviceId, versionNo], map: "telemetry_device_version_udx")
+  @@map("telemetry_device_version")
+  @@schema("branch")
+}
+
+model TelemetryDeviceAudit {
+  id                String   @id @default(uuid())
+  telemetryDeviceId String   @map("telemetry_device_id")
+  action            String
+  actor             String?
+  note              String?
+  payload           Json?
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  device TelemetryDevice @relation(fields: [telemetryDeviceId], references: [id])
+
+  @@map("telemetry_device_audit")
   @@schema("branch")
 }

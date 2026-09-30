@@ -12,6 +12,7 @@ import { StorageTankController } from "@/app/api-services/controllers/storage-ta
 import { VehicleController } from "@/app/api-services/controllers/vehicle.controller";
 import { PtlThresholdController } from "@/app/api-services/controllers/ptl-threshold.controller";
 import { CylinderController } from "@/app/api-services/controllers/cylinder.controller";
+import { TelemetryDeviceController } from "@/app/api-services/controllers/telemetry-device.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -27,6 +28,7 @@ import { StorageTankRepository } from "@/app/api-services/repositories/storage-t
 import { VehicleRepository } from "@/app/api-services/repositories/vehicle.repository";
 import { PtlThresholdRepository } from "@/app/api-services/repositories/ptl-threshold.repository";
 import { CylinderRepository } from "@/app/api-services/repositories/cylinder.repository";
+import { TelemetryDeviceRepository } from "@/app/api-services/repositories/telemetry-device.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
@@ -40,6 +42,7 @@ import { StorageTankRoutes } from "@/app/api-services/routes/storage-tank.routes
 import { VehicleRoutes } from "@/app/api-services/routes/vehicle.routes";
 import { PtlThresholdRoutes } from "@/app/api-services/routes/ptl-threshold.routes";
 import { CylinderRoutes } from "@/app/api-services/routes/cylinder.routes";
+import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-device.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
@@ -53,6 +56,7 @@ import { StorageTankService } from "@/app/api-services/services/storage-tank.ser
 import { VehicleService } from "@/app/api-services/services/vehicle.service";
 import { PtlThresholdService } from "@/app/api-services/services/ptl-threshold.service";
 import { CylinderService } from "@/app/api-services/services/cylinder.service";
+import { TelemetryDeviceService } from "@/app/api-services/services/telemetry-device.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -87,6 +91,9 @@ const vehicleController = new VehicleController(
   new VehicleService(new VehicleRepository(pool), ptlThresholdRepository),
 );
 const cylinderController = new CylinderController(new CylinderService(new CylinderRepository(pool)));
+const telemetryDeviceController = new TelemetryDeviceController(
+  new TelemetryDeviceService(new TelemetryDeviceRepository(pool)),
+);
 const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
 const pricingProcedureController = new PricingProcedureController(
   new PricingProcedureService(new PricingProcedureRepository(pool)),
@@ -107,6 +114,7 @@ const routes = [
   ...new VehicleRoutes(vehicleController).register(),
   ...new PtlThresholdRoutes(ptlThresholdController).register(),
   ...new CylinderRoutes(cylinderController).register(),
+  ...new TelemetryDeviceRoutes(telemetryDeviceController).register(),
   ...new FeeRoutes(feeController).register(),
   ...new PricingProcedureRoutes(pricingProcedureController).register(),
   ...new GeoRoutes(geoController).register(),

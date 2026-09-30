@@ -1,0 +1,515 @@
+{
+  "info": {
+    "_postman_id": "e16f5a3b-8c42-4d19-a133-tms-telemetry",
+    "name": "TMS — Telemetry Device (WBS 2.16)",
+    "description": "Telemetry Device APIs on the Node process (port 3001). No UI. No sap-upsert. Hardware register only. No tank readings.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + parents** first. Scripts save `token`, `vendorId` (published DEVICE, otherwise SUPPLIER), and `storageTankId` (first published Storage Tank).\n4. A CARRIER vendor is rejected.\n5. No trailing slash. Port **3001**, not 3000.\n6. Codes `MON-PM-01`, `MON-PAIR-PM`, and `MON-IMP-PM` may already exist after one run. A second run of the same code or imei returns 409.\n\n## Status (AUTO)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PUBLISHED**\nPATCH on PUBLISHED stays **PUBLISHED**\nPOST approve or reject → 409, because submit never sets PENDING\n\n## Pairing\nUNPAIRED_STOCK → storageTankId must be null.\nPAIRED_REPORTING or PAIRED_NO_SIGNAL → storageTankId is required, the tank must be PUBLISHED, and that tank can be paired to only one live device.\nA draft pair already occupies the tank.\n\ncadence: M15 | H1 | H4 | D1 (optional)\nhealth: HEALTHY | BATTERY_LOW | NO_SIGNAL | FAULTY\nbatteryPct: integer 0–100, optional. Display only.\nimei is unique when present.\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "vendorId", "value": "" },
+    { "key": "storageTankId", "value": "" },
+    { "key": "deviceId", "value": "" },
+    { "key": "pairedDeviceId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Vendor — DEVICE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  if (rows[0] && rows[0].id) pm.collectionVariables.set('vendorId', rows[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/vendors?type=DEVICE",
+            "description": "Published active vendors of type DEVICE. Saves {{vendorId}}."
+          }
+        },
+        {
+          "name": "03 Lookups Vendor — SUPPLIER fallback",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200 && !pm.collectionVariables.get('vendorId')) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  if (rows[0] && rows[0].id) pm.collectionVariables.set('vendorId', rows[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/vendors?type=SUPPLIER",
+            "description": "Sets {{vendorId}} only when no DEVICE vendor was found. CARRIER is not accepted."
+          }
+        },
+        {
+          "name": "04 Lookups Storage Tank — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  if (rows[0] && rows[0].id) pm.collectionVariables.set('storageTankId', rows[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/storage-tanks",
+            "description": "Published storage tanks. Saves the first id to {{storageTankId}} for the pairing requests."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path",
+      "item": [
+        {
+          "name": "05 POST create — unpaired stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('deviceId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-PM-01\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"model\": \"O-200\",\n  \"imei\": \"359771020019001\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"cadence\": \"H1\",\n  \"health\": \"HEALTHY\",\n  \"batteryPct\": 90,\n  \"signal\": \"GOOD\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Unpaired stock has no storageTankId. Saves {{deviceId}}."
+          }
+        },
+        {
+          "name": "06 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}",
+            "description": "200 full device plus vendor and tank labels. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "07 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices?q=MON-PM-01&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. q matches code or imei. status: DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED."
+          }
+        },
+        {
+          "name": "08 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready to publish\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}/submit",
+            "description": "DRAFT → PUBLISHED. 200 { status: PUBLISHED }. AUTO does not stop in PENDING. versionNo becomes 2."
+          }
+        },
+        {
+          "name": "09 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/telemetry-devices",
+            "description": "200 [{ id, code, name }]. name is the code. DRAFT rows are omitted. Run after submit."
+          }
+        },
+        {
+          "name": "10 GET by id — refresh version after submit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}",
+            "description": "Refreshes {{versionNo}} before the published amend. After create and submit it is 2."
+          }
+        },
+        {
+          "name": "11 PATCH published — stays PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-PM-01\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"model\": \"O-200\",\n  \"imei\": \"359771020019001\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"cadence\": \"H4\",\n  \"health\": \"BATTERY_LOW\",\n  \"batteryPct\": 18,\n  \"signal\": \"WEAK\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Battery recorded\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}",
+            "description": "200 { id, versionNo, status: PUBLISHED }. An AUTO amend stays published. Run request 10 first."
+          }
+        },
+        {
+          "name": "12 PATCH stale version (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-PM-01\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"imei\": \"359771020019001\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"health\": \"HEALTHY\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}",
+            "description": "409 { code: STALE_VERSION }. versionNo 1 is no longer current after create, submit, and amend."
+          }
+        },
+        {
+          "name": "13 POST approve (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}/approve",
+            "description": "409. Submit already published the row, so it is not PENDING."
+          }
+        },
+        {
+          "name": "14 POST reject (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Not used on the AUTO path\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}/reject",
+            "description": "409. Only a PENDING row can be rejected, and this master never enters PENDING."
+          }
+        },
+        {
+          "name": "15 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}/versions",
+            "description": "200 { versions }. One snapshot per versionNo."
+          }
+        },
+        {
+          "name": "16 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/{{deviceId}}/audit",
+            "description": "200 { events } for CREATE, SUBMIT, and UPDATE."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Pairing",
+      "item": [
+        {
+          "name": "17 POST unpaired with a tank (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-UNPAIR-TANK\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"imei\": \"359771020019010\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"health\": \"HEALTHY\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "400 { code: VALIDATION, field: storageTankId }. UNPAIRED_STOCK must not send a tank."
+          }
+        },
+        {
+          "name": "18 POST paired without a tank (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-NO-TANK\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"imei\": \"359771020019011\",\n  \"pairingState\": \"PAIRED_REPORTING\",\n  \"health\": \"HEALTHY\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "400 { code: VALIDATION, field: storageTankId }. PAIRED_REPORTING and PAIRED_NO_SIGNAL require a tank."
+          }
+        },
+        {
+          "name": "19 POST pair a published tank",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('pairedDeviceId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-PAIR-PM\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"model\": \"O-200\",\n  \"imei\": \"359771020019002\",\n  \"pairingState\": \"PAIRED_REPORTING\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"cadence\": \"M15\",\n  \"health\": \"NO_SIGNAL\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "201 DRAFT. The tank must be PUBLISHED. Saves {{pairedDeviceId}} and does not replace {{deviceId}}. A draft pair already occupies the tank."
+          }
+        },
+        {
+          "name": "20 POST second device on the same tank (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-PAIR-DUP\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"imei\": \"359771020019003\",\n  \"pairingState\": \"PAIRED_NO_SIGNAL\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"health\": \"FAULTY\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "409 { field: storageTankId }. Run request 19 first. One live device per paired tank."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Validation",
+      "item": [
+        {
+          "name": "21 GET list — no token (expect 401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "401 when Authorization is missing."
+          }
+        },
+        {
+          "name": "22 POST batteryPct 101 (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-BAD-BATT\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"imei\": \"359771020019012\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"health\": \"HEALTHY\",\n  \"batteryPct\": 101,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "400 { code: VALIDATION, field: batteryPct }. Allowed range is 0–100. Omit the field when unknown."
+          }
+        },
+        {
+          "name": "23 POST unknown vendor (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-BAD-VEN\",\n  \"vendorId\": \"00000000-0000-4000-8000-000000000099\",\n  \"imei\": \"359771020019013\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"health\": \"HEALTHY\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "400 { code: PARENT_NOT_FOUND, field: vendorId }. An unpublished vendor returns PARENT_NOT_PUBLISHED. A CARRIER vendor returns VALIDATION."
+          }
+        },
+        {
+          "name": "24 POST duplicate imei (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"MON-DUP-IMEI\",\n  \"vendorId\": \"{{vendorId}}\",\n  \"imei\": \"359771020019001\",\n  \"pairingState\": \"UNPAIRED_STOCK\",\n  \"health\": \"HEALTHY\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices",
+            "description": "409 { field: imei }. Run request 05 first. An empty imei is allowed on more than one row."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import and export",
+      "item": [
+        {
+          "name": "25 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/export",
+            "description": "200 text/csv of DRAFT and PUBLISHED rows."
+          }
+        },
+        {
+          "name": "26 POST import JSON",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"MON-IMP-PM\",\n    \"vendorId\": \"{{vendorId}}\",\n    \"model\": \"O-200\",\n    \"imei\": \"359771020019004\",\n    \"pairingState\": \"UNPAIRED_STOCK\",\n    \"health\": \"HEALTHY\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"MON-PM-01\",\n    \"vendorId\": \"{{vendorId}}\",\n    \"imei\": \"359771020019005\",\n    \"pairingState\": \"UNPAIRED_STOCK\",\n    \"health\": \"HEALTHY\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/import",
+            "description": "200 { accepted, rejected }. Row 1 is accepted as DRAFT. Row 2 is rejected because code MON-PM-01 already exists. One bad row does not roll back the file. Run request 05 first. A { rows: [...] } body is also accepted."
+          }
+        },
+        {
+          "name": "27 POST import Excel (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/vnd.ms-excel" }],
+            "body": {
+              "mode": "raw",
+              "raw": "not-a-csv",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/telemetry-devices/import",
+            "description": "400 { message: CSV template mismatch }. Excel is not accepted. Send text/csv or a JSON array."
+          }
+        }
+      ]
+    }
+  ]
+}
