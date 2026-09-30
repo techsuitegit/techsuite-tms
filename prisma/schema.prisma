@@ -917,3 +917,63 @@ model VehicleAudit {
   @@map("vehicle_audit")
   @@schema("branch")
 }
+
+/// WBS 2.14 PTL Load Threshold. AUTO approval. One published row per vehicle class.
+/// Applied via sql/branch_ptl_threshold.sql. Do not expose a UI.
+model PtlThreshold {
+  id           String    @id @default(uuid())
+  code         String
+  vehicleClass String    @map("vehicle_class")
+  minLoadPct   Decimal   @map("min_load_pct") @db.Decimal(5, 2)
+  belowAction  String    @map("below_action")
+  urgentExempt Boolean   @map("urgent_exempt")
+  overrideRole String    @map("override_role")
+  validFrom    DateTime  @map("valid_from") @db.Date
+  validTo      DateTime? @map("valid_to") @db.Date
+  reason       String
+  changeNote   String?   @map("change_note")
+  status       String
+  versionNo    Int       @default(1) @map("version_no")
+  externalId   String?   @map("external_id")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?   @map("updated_by")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions PtlThresholdVersion[]
+  audits   PtlThresholdAudit[]
+
+  @@map("ptl_threshold")
+  @@schema("branch")
+}
+
+model PtlThresholdVersion {
+  id             String   @id @default(uuid())
+  ptlThresholdId String   @map("ptl_threshold_id")
+  versionNo      Int      @map("version_no")
+  snapshot       Json
+  recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy     String?  @map("recorded_by")
+
+  threshold PtlThreshold @relation(fields: [ptlThresholdId], references: [id])
+
+  @@unique([ptlThresholdId, versionNo], map: "ptl_threshold_version_udx")
+  @@map("ptl_threshold_version")
+  @@schema("branch")
+}
+
+model PtlThresholdAudit {
+  id             String   @id @default(uuid())
+  ptlThresholdId String   @map("ptl_threshold_id")
+  action         String
+  actor          String?
+  note           String?
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  threshold PtlThreshold @relation(fields: [ptlThresholdId], references: [id])
+
+  @@map("ptl_threshold_audit")
+  @@schema("branch")
+}

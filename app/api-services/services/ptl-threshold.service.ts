@@ -1,14 +1,14 @@
 import { MdmError } from "../errors/mdm-error";
-import type { PtlThresholdRepository } from "../repositories/ptl-threshold.repository";
-import { mapDbError, type VehicleRepository, type VehicleRow } from "../repositories/vehicle.repository";
-import type { VehicleInput } from "./vehicle-types";
-import { parseCreateBody, parseStatusFilter } from "./vehicle-validation";
+import {
+  mapDbError,
+  type PtlThresholdRepository,
+  type PtlThresholdRow,
+} from "../repositories/ptl-threshold.repository";
+import type { PtlThresholdInput } from "./ptl-threshold-types";
+import { parseCreateBody, parseStatusFilter } from "./ptl-threshold-validation";
 
-export class VehicleService {
-  constructor(
-    private readonly repo: VehicleRepository,
-    private readonly ptl: PtlThresholdRepository,
-  ) {}
+export class PtlThresholdService {
+  constructor(private readonly repo: PtlThresholdRepository) {}
 
   async list(query: URLSearchParams) {
     parseStatusFilter(query.get("status"));
@@ -26,66 +26,61 @@ export class VehicleService {
 
   async getById(id: string) {
     const row = await this.repo.findById(id);
-    if (!row) throw new MdmError("NOT_FOUND", "Vehicle was not found", 404);
+    if (!row) throw new MdmError("NOT_FOUND", "PTL Threshold was not found", 404);
     return serializeRow(row);
   }
 
-  async create(input: VehicleInput, actor: string) {
-    await this.applyPtlDefault(input);
-    await this.assertParents(input);
-    const warnings = capacityWarnings(input);
-    const created = await this.repo.withTransaction(async (client) => {
+  async create(input: PtlThresholdInput, actor: string) {
+    return this.repo.withTransaction(async (client) => {
       const row = await this.repo.insert(client, input, actor);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
       return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
     });
-    return { ...created, warnings };
   }
 
-  async update(id: string, input: VehicleInput, actor: string) {
-    await this.applyPtlDefault(input);
-    await this.assertParents(input);
-    const warnings = capacityWarnings(input);
-    const updated = await this.repo.withTransaction(async (client) => {
+  async update(id: string, input: PtlThresholdInput, actor: string) {
+    return this.repo.withTransaction(async (client) => {
       const current = await this.repo.lock(client, id);
       if (current.status === "PENDING") {
-        throw new MdmError("LOCKED", "PENDING Vehicle cannot be amended", 409);
+        throw new MdmError("LOCKED", "PENDING PTL Threshold cannot be amended", 409);
       }
       if (current.version_no !== input.versionNo) {
         throw new MdmError("STALE_VERSION", "record changed by another user", 409);
       }
-      const nextStatus = current.status === "PUBLISHED" || current.status === "REJECTED" ? "DRAFT" : current.status;
+      const nextStatus = current.status === "PUBLISHED" ? "PUBLISHED" : current.status;
+      if (nextStatus === "PUBLISHED") await this.assertUniquePublished(input.vehicleClass, id);
       await this.repo.update(client, id, input, actor, nextStatus);
-      const row = await this.repo.lock(client, id);
+      const updated = await this.repo.lock(client, id);
       await this.repo.snapshot(client, id, actor);
       await this.repo.audit(client, id, "UPDATE", actor, input.changeNote ?? null, {
-        versionNo: row.version_no,
+        versionNo: updated.version_no,
         status: nextStatus,
       });
-      return { id, versionNo: row.version_no, status: nextStatus };
+      return { id, versionNo: updated.version_no, status: nextStatus };
     });
-    return { ...updated, warnings };
   }
 
   async submit(id: string, reason: string, actor: string) {
     if (!reason.trim()) throw new MdmError("VALIDATION", "reason is required", 400, "reason");
-    return this.transition(id, actor, reason, (current) => {
+    return this.transition(id, actor, reason, async (current) => {
       if (current.status !== "DRAFT") throw new MdmError("CONFLICT", "Only DRAFT rows can be submitted", 409);
-      return { status: "PENDING", action: "SUBMIT" };
+      await this.assertUniquePublished(current.vehicle_class, id);
+      return { status: "PUBLISHED", action: "SUBMIT" };
     });
   }
 
   async approve(id: string, note: string | null, actor: string) {
-    return this.transition(id, actor, note, (current) => {
+    return this.transition(id, actor, note, async (current) => {
       if (current.status !== "PENDING") throw new MdmError("CONFLICT", "Only PENDING rows can be approved", 409);
+      await this.assertUniquePublished(current.vehicle_class, id);
       return { status: "PUBLISHED", action: "APPROVE" };
     });
   }
 
   async reject(id: string, note: string, actor: string) {
     if (!note.trim()) throw new MdmError("VALIDATION", "note is required", 400, "note");
-    return this.transition(id, actor, note, (current) => {
+    return this.transition(id, actor, note, async (current) => {
       if (current.status !== "PENDING") throw new MdmError("CONFLICT", "Only PENDING rows can be rejected", 409);
       return { status: "REJECTED", action: "REJECT" };
     });
@@ -130,18 +125,15 @@ export class VehicleService {
     const rows = await this.repo.exportRows();
     const headers = [
       "code",
-      "plate",
       "vehicleClass",
-      "shippingPointId",
-      "divisionId",
-      "costCentreId",
-      "capacity",
-      "capacityUomId",
-      "hazmatClass",
+      "minLoadPct",
+      "belowAction",
+      "urgentExempt",
+      "overrideRole",
       "validFrom",
+      "validTo",
       "reason",
       "status",
-      "compartments",
     ];
     const lines = [headers.join(",")];
     for (const row of rows.map(serializeRow)) {
@@ -154,11 +146,11 @@ export class VehicleService {
     id: string,
     actor: string,
     note: string | null,
-    next: (current: VehicleRow) => { status: string; action: string },
+    next: (current: PtlThresholdRow) => Promise<{ status: string; action: string }>,
   ) {
     return this.repo.withTransaction(async (client) => {
       const current = await this.repo.lock(client, id);
-      const result = next(current);
+      const result = await next(current);
       await this.repo.setStatus(client, id, result.status, note, actor);
       await this.repo.lock(client, id);
       await this.repo.snapshot(client, id, actor);
@@ -167,54 +159,12 @@ export class VehicleService {
     });
   }
 
-  private async applyPtlDefault(input: VehicleInput) {
-    if (input.ptlMinPct != null) return;
-    const rule = await this.ptl.findPublishedByClass(input.vehicleClass);
-    if (rule) input.ptlMinPct = rule.minLoadPct;
-  }
-
-  private async assertParents(input: VehicleInput) {
-    const shippingPoint = await this.repo.findShippingPoint(input.shippingPointId);
-    if (!shippingPoint) {
-      throw new MdmError("PARENT_NOT_FOUND", "Shipping Point was not found", 400, "shippingPointId");
-    }
-    if (shippingPoint.status !== "PUBLISHED") {
-      throw new MdmError("PARENT_NOT_PUBLISHED", "Shipping Point must be PUBLISHED", 400, "shippingPointId");
-    }
-    if (input.divisionId !== shippingPoint.divisionId) {
-      throw new MdmError("VALIDATION", "divisionId must match the Shipping Point division", 400, "divisionId");
-    }
-
-    const division = await this.repo.findDivisionStatus(input.divisionId);
-    if (!division) throw new MdmError("PARENT_NOT_FOUND", "Division was not found", 400, "divisionId");
-    if (division.status !== "PUBLISHED") {
-      throw new MdmError("PARENT_NOT_PUBLISHED", "Division must be PUBLISHED", 400, "divisionId");
-    }
-
-    const uom = await this.repo.findUomStatus(input.capacityUomId);
-    if (!uom) throw new MdmError("PARENT_NOT_FOUND", "UOM was not found", 400, "capacityUomId");
-    if (uom.status !== "PUBLISHED") {
-      throw new MdmError("PARENT_NOT_PUBLISHED", "UOM must be PUBLISHED", 400, "capacityUomId");
-    }
-
-    for (const [index, compartment] of input.compartments.entries()) {
-      if (!compartment.materialId) continue;
-      const material = await this.repo.findMaterialStatus(compartment.materialId);
-      const field = `compartments[${index}].materialId`;
-      if (!material) throw new MdmError("PARENT_NOT_FOUND", "Material was not found", 400, field);
-      if (material.status !== "PUBLISHED") {
-        throw new MdmError("PARENT_NOT_PUBLISHED", "Material must be PUBLISHED", 400, field);
-      }
+  private async assertUniquePublished(vehicleClass: string, exceptId: string) {
+    const existing = await this.repo.findPublishedByClass(vehicleClass);
+    if (existing && existing.id !== exceptId) {
+      throw new MdmError("CONFLICT", "A published rule already exists for this vehicle class", 409, "vehicleClass");
     }
   }
-}
-
-function capacityWarnings(input: VehicleInput) {
-  const sum = input.compartments.reduce((total, row) => total + (row.volume ?? 0), 0);
-  if (sum > input.capacity) {
-    return ["Sum of compartment volumes is greater than capacity"];
-  }
-  return [];
 }
 
 function serializeRow(row: Record<string, unknown>) {
@@ -222,10 +172,6 @@ function serializeRow(row: Record<string, unknown>) {
     ...row,
     validFrom: dateOnly(row.validFrom),
     validTo: dateOnly(row.validTo),
-    insuranceExpiry: dateOnly(row.insuranceExpiry),
-    fitnessExpiry: dateOnly(row.fitnessExpiry),
-    permitExpiry: dateOnly(row.permitExpiry),
-    compartments: Array.isArray(row.compartments) ? row.compartments : row.compartments ?? undefined,
   };
 }
 
@@ -236,7 +182,7 @@ function dateOnly(value: unknown) {
 }
 
 function csvCell(value: unknown) {
-  const text = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value);
+  const text = value == null ? "" : String(value);
   if (/[",\n]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
   return text;
 }

@@ -1,0 +1,487 @@
+{
+  "info": {
+    "_postman_id": "d5f9b2c3-8e41-4b27-a0a1-tms-ptl-threshold",
+    "name": "TMS — PTL Load Threshold (WBS 2.14)",
+    "description": "PTL Load Threshold APIs on the Node process (port 3001). No UI. No sap-upsert.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + parents** first. Scripts save `token`, `shippingPointId`, `divisionId`, and `capacityUomId` (UOM L).\n4. `costCentreId` is a placeholder UUID. Vehicle create needs it. It is not looked up.\n5. No trailing slash. Port **3001**, not 3000.\n\n## Status (AUTO)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PUBLISHED**\nPATCH on PUBLISHED stays **PUBLISHED**\nPOST approve or reject → 409, because submit never sets PENDING\n\nOnly one PUBLISHED rule is allowed per vehicleClass. minLoadPct is 1–100. ALLOW_SILENT is rejected.\n\nA Vehicle create that omits `ptlMinPct` copies `minLoadPct` from the published rule for that class.\n\nvehicleClass: BOBTAIL_LPG | BOBTAIL_REFINED | TRANSPORT_TRACTOR | TANK_TRAILER | CYLINDER_TRUCK\nbelowAction: WARN_REASON | BLOCK_UNLESS_URGENT | BLOCK\noverrideRole: PLANNER | KEY_USER | OPS_MANAGER\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "shippingPointId", "value": "" },
+    { "key": "divisionId", "value": "" },
+    { "key": "capacityUomId", "value": "" },
+    { "key": "costCentreId", "value": "22222222-2222-4222-8222-222222222222" },
+    { "key": "ptlId", "value": "" },
+    { "key": "secondPtlId", "value": "" },
+    { "key": "vehicleId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Shipping Point — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const row = rows.find((r) => r.code === 'SP-CHE-01') || rows[0];",
+                  "  if (row && row.id) pm.collectionVariables.set('shippingPointId', row.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/shipping-points",
+            "description": "Published shipping points. Prefers SP-CHE-01. Saves {{shippingPointId}} for the vehicle default request."
+          }
+        },
+        {
+          "name": "03 GET Shipping Point — save its division",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.divisionId) pm.collectionVariables.set('divisionId', json.divisionId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}",
+            "description": "Run after 02. Saves {{divisionId}}."
+          }
+        },
+        {
+          "name": "04 Lookups UOM — save L",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const litre = rows.find((r) => r.code === 'L') || rows[0];",
+                  "  if (litre && litre.id) pm.collectionVariables.set('capacityUomId', litre.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/uom",
+            "description": "Published UOMs. Prefers L. Saves {{capacityUomId}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path",
+      "item": [
+        {
+          "name": "05 POST create",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('ptlId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PTL-REF-PM\",\n  \"vehicleClass\": \"BOBTAIL_REFINED\",\n  \"minLoadPct\": 90,\n  \"belowAction\": \"WARN_REASON\",\n  \"urgentExempt\": true,\n  \"overrideRole\": \"PLANNER\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Saves {{ptlId}}. Uses BOBTAIL_REFINED so it does not collide with an existing published BOBTAIL_LPG rule."
+          }
+        },
+        {
+          "name": "06 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}",
+            "description": "200 full rule. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "07 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds?q=PTL-REF-PM&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }."
+          }
+        },
+        {
+          "name": "08 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Publish the rule\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}/submit",
+            "description": "DRAFT → PUBLISHED. 200 { status: PUBLISHED }. Empty reason → 400. A second published rule for BOBTAIL_REFINED → 409. versionNo becomes 2."
+          }
+        },
+        {
+          "name": "09 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/ptl-thresholds",
+            "description": "200 [{ id, code, name, vehicleClass, minLoadPct }]. name is the rule code. PTL-REF-PM appears after submit."
+          }
+        },
+        {
+          "name": "10 GET by id — refresh version after submit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}",
+            "description": "After create and submit, versionNo is 2. Run this before the published PATCH."
+          }
+        },
+        {
+          "name": "11 PATCH published — stays PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PTL-REF-PM\",\n  \"vehicleClass\": \"BOBTAIL_REFINED\",\n  \"minLoadPct\": 92,\n  \"belowAction\": \"WARN_REASON\",\n  \"urgentExempt\": true,\n  \"overrideRole\": \"PLANNER\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Raised the minimum\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}",
+            "description": "200 { id, versionNo, status: PUBLISHED }. AUTO does not send the row back to DRAFT. Wrong versionNo → 409 STALE_VERSION. Run request 10 first."
+          }
+        },
+        {
+          "name": "12 POST approve (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}/approve",
+            "description": "409 Only PENDING rows can be approved. Submit already published the row."
+          }
+        },
+        {
+          "name": "13 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}/versions",
+            "description": "200 { versions[] }."
+          }
+        },
+        {
+          "name": "14 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{ptlId}}/audit",
+            "description": "200 { events[] }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Validation",
+      "item": [
+        {
+          "name": "15 GET list — no token (expect 401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds",
+            "description": "401 when Authorization is missing."
+          }
+        },
+        {
+          "name": "16 POST minLoadPct 0 (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PTL-ZERO-PM\",\n  \"vehicleClass\": \"TRANSPORT_TRACTOR\",\n  \"minLoadPct\": 0,\n  \"belowAction\": \"WARN_REASON\",\n  \"urgentExempt\": false,\n  \"overrideRole\": \"PLANNER\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds",
+            "description": "400 { code: VALIDATION, field: minLoadPct }. The percent must be from 1 to 100."
+          }
+        },
+        {
+          "name": "17 POST ALLOW_SILENT (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PTL-SILENT-PM\",\n  \"vehicleClass\": \"TANK_TRAILER\",\n  \"minLoadPct\": 80,\n  \"belowAction\": \"ALLOW_SILENT\",\n  \"urgentExempt\": false,\n  \"overrideRole\": \"PLANNER\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds",
+            "description": "400 { code: VALIDATION, field: belowAction, message: ALLOW_SILENT is not allowed }."
+          }
+        },
+        {
+          "name": "18 POST second rule for the same class",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('secondPtlId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PTL-REF-2-PM\",\n  \"vehicleClass\": \"BOBTAIL_REFINED\",\n  \"minLoadPct\": 85,\n  \"belowAction\": \"BLOCK\",\n  \"urgentExempt\": false,\n  \"overrideRole\": \"OPS_MANAGER\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds",
+            "description": "201 DRAFT is allowed. Two drafts for one class are fine. Saves {{secondPtlId}}. Run request 08 first."
+          }
+        },
+        {
+          "name": "19 POST submit second rule (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Second published rule\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/{{secondPtlId}}/submit",
+            "description": "409 { code: CONFLICT, field: vehicleClass }. BOBTAIL_REFINED already has published rule PTL-REF-PM."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Vehicle default",
+      "item": [
+        {
+          "name": "20 POST vehicle without ptlMinPct",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('vehicleId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-PTL-PM\",\n  \"plate\": \"TN-09-PTL-PM-01\",\n  \"vehicleClass\": \"BOBTAIL_REFINED\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 18000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "201 DRAFT. The body does not send ptlMinPct. Run folder 0 and request 11 first so the published BOBTAIL_REFINED rule is 92."
+          }
+        },
+        {
+          "name": "21 GET vehicle — ptlMinPct copied from the rule",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}",
+            "description": "200. ptlMinPct is 92, copied from the published PTL-REF-PM rule after request 11. A body that sends ptlMinPct keeps that value instead."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import and export",
+      "item": [
+        {
+          "name": "22 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/export",
+            "description": "200 text/csv of DRAFT and PUBLISHED rows. PENDING is omitted."
+          }
+        },
+        {
+          "name": "23 POST import JSON",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"PTL-CYL-PM\",\n    \"vehicleClass\": \"CYLINDER_TRUCK\",\n    \"minLoadPct\": 70,\n    \"belowAction\": \"BLOCK_UNLESS_URGENT\",\n    \"urgentExempt\": true,\n    \"overrideRole\": \"KEY_USER\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"PTL-REF-PM\",\n    \"vehicleClass\": \"TRANSPORT_TRACTOR\",\n    \"minLoadPct\": 75,\n    \"belowAction\": \"BLOCK\",\n    \"urgentExempt\": false,\n    \"overrideRole\": \"PLANNER\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/import",
+            "description": "200 { accepted, rejected }. Row 1 is accepted as DRAFT. Row 2 is rejected because code PTL-REF-PM already exists. Run request 05 first."
+          }
+        },
+        {
+          "name": "24 POST import Excel (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/vnd.ms-excel" }],
+            "body": {
+              "mode": "raw",
+              "raw": "not-a-csv",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/ptl-thresholds/import",
+            "description": "400 { message: CSV template mismatch }. Excel is not accepted. Send text/csv or a JSON array."
+          }
+        }
+      ]
+    }
+  ]
+}

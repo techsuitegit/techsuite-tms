@@ -10,6 +10,7 @@ import { PricingProcedureController } from "@/app/api-services/controllers/prici
 import { MaterialController } from "@/app/api-services/controllers/material.controller";
 import { StorageTankController } from "@/app/api-services/controllers/storage-tank.controller";
 import { VehicleController } from "@/app/api-services/controllers/vehicle.controller";
+import { PtlThresholdController } from "@/app/api-services/controllers/ptl-threshold.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -23,6 +24,7 @@ import { PricingProcedureRepository } from "@/app/api-services/repositories/pric
 import { MaterialRepository } from "@/app/api-services/repositories/material.repository";
 import { StorageTankRepository } from "@/app/api-services/repositories/storage-tank.repository";
 import { VehicleRepository } from "@/app/api-services/repositories/vehicle.repository";
+import { PtlThresholdRepository } from "@/app/api-services/repositories/ptl-threshold.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
@@ -34,6 +36,7 @@ import { PricingProcedureRoutes } from "@/app/api-services/routes/pricing-proced
 import { MaterialRoutes } from "@/app/api-services/routes/material.routes";
 import { StorageTankRoutes } from "@/app/api-services/routes/storage-tank.routes";
 import { VehicleRoutes } from "@/app/api-services/routes/vehicle.routes";
+import { PtlThresholdRoutes } from "@/app/api-services/routes/ptl-threshold.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
@@ -45,6 +48,7 @@ import { PricingProcedureService } from "@/app/api-services/services/pricing-pro
 import { MaterialService } from "@/app/api-services/services/material.service";
 import { StorageTankService } from "@/app/api-services/services/storage-tank.service";
 import { VehicleService } from "@/app/api-services/services/vehicle.service";
+import { PtlThresholdService } from "@/app/api-services/services/ptl-threshold.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -71,7 +75,13 @@ const materialController = new MaterialController(
 const storageTankController = new StorageTankController(
   new StorageTankService(new StorageTankRepository(pool)),
 );
-const vehicleController = new VehicleController(new VehicleService(new VehicleRepository(pool)));
+const ptlThresholdRepository = new PtlThresholdRepository(pool);
+const ptlThresholdController = new PtlThresholdController(
+  new PtlThresholdService(ptlThresholdRepository),
+);
+const vehicleController = new VehicleController(
+  new VehicleService(new VehicleRepository(pool), ptlThresholdRepository),
+);
 const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
 const pricingProcedureController = new PricingProcedureController(
   new PricingProcedureService(new PricingProcedureRepository(pool)),
@@ -90,6 +100,7 @@ const routes = [
   ...new MaterialRoutes(materialController).register(),
   ...new StorageTankRoutes(storageTankController).register(),
   ...new VehicleRoutes(vehicleController).register(),
+  ...new PtlThresholdRoutes(ptlThresholdController).register(),
   ...new FeeRoutes(feeController).register(),
   ...new PricingProcedureRoutes(pricingProcedureController).register(),
   ...new GeoRoutes(geoController).register(),
