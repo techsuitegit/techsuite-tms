@@ -232,6 +232,7 @@ model Division {
   updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   shippingPoints ShippingPoint[]
+  vehicles       Vehicle[]
 
   @@map("division")
   @@schema("branch")
@@ -278,6 +279,7 @@ model ShippingPoint {
   terminals Terminal[]
   storageTanks StorageTank[] @relation("TankShippingPoint")
   dispatchedTanks StorageTank[] @relation("TankDispatcherPoint")
+  vehicles Vehicle[]
 
   @@map("shipping_point")
   @@schema("branch")
@@ -475,6 +477,7 @@ model Uom {
   materialsWeight Material[] @relation("MaterialWeightUom")
   materialsVolume Material[] @relation("MaterialVolumeUom")
   tankCapacities  StorageTank[] @relation("TankCapacityUom")
+  vehicleCapacities Vehicle[] @relation("VehicleCapacityUom")
 
   @@map("uom")
   @@schema("branch")
@@ -560,6 +563,7 @@ model Material {
   versions  MaterialVersion[]
   audits    MaterialAudit[]
   storageTanks StorageTank[]
+  vehicleCompartments VehicleCompartment[]
 
   @@map("material")
   @@schema("branch")
@@ -815,5 +819,101 @@ model PricingProcedureAudit {
   procedure PricingProcedure @relation(fields: [procedureId], references: [id])
 
   @@map("pricing_procedure_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.13 Vehicle / Truck. SAFETY approval. cost_centre_id has no FK until WBS 2.4 exists.
+/// Applied via sql/branch_vehicle.sql. Do not expose a UI.
+model Vehicle {
+  id               String    @id @default(uuid())
+  code             String
+  plate            String
+  vin              String?
+  make             String?
+  model            String?
+  modelYear        Int?      @map("model_year")
+  vehicleClass     String    @map("vehicle_class")
+  shippingPointId  String    @map("shipping_point_id")
+  divisionId       String    @map("division_id")
+  costCentreId     String    @map("cost_centre_id")
+  capacity         Decimal   @db.Decimal(18, 3)
+  capacityUomId    String    @map("capacity_uom_id")
+  gvwKg            Decimal?  @map("gvw_kg") @db.Decimal(18, 3)
+  tareKg           Decimal?  @map("tare_kg") @db.Decimal(18, 3)
+  heightM          Decimal?  @map("height_m") @db.Decimal(18, 3)
+  lengthM          Decimal?  @map("length_m") @db.Decimal(18, 3)
+  hazmatClass      String?   @map("hazmat_class")
+  axleConfig       String?   @map("axle_config")
+  ptlMinPct        Decimal?  @map("ptl_min_pct") @db.Decimal(5, 2)
+  gpsDeviceId      String?   @map("gps_device_id")
+  insuranceExpiry  DateTime? @map("insurance_expiry") @db.Date
+  fitnessExpiry    DateTime? @map("fitness_expiry") @db.Date
+  permitExpiry     DateTime? @map("permit_expiry") @db.Date
+  validFrom        DateTime  @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  reason           String
+  changeNote       String?   @map("change_note")
+  status           String
+  versionNo        Int       @default(1) @map("version_no")
+  externalId       String?   @map("external_id")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?   @map("created_by")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?   @map("updated_by")
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  shippingPoint ShippingPoint         @relation(fields: [shippingPointId], references: [id])
+  division      Division              @relation(fields: [divisionId], references: [id])
+  capacityUom   Uom                   @relation("VehicleCapacityUom", fields: [capacityUomId], references: [id])
+  compartments  VehicleCompartment[]
+  versions      VehicleVersion[]
+  audits        VehicleAudit[]
+
+  @@map("vehicle")
+  @@schema("branch")
+}
+
+model VehicleCompartment {
+  id         String   @id @default(uuid())
+  vehicleId  String   @map("vehicle_id")
+  seq        Int
+  materialId String?  @map("material_id")
+  volume     Decimal? @db.Decimal(18, 3)
+
+  vehicle  Vehicle   @relation(fields: [vehicleId], references: [id])
+  material Material? @relation(fields: [materialId], references: [id])
+
+  @@unique([vehicleId, seq], map: "vehicle_compartment_seq_udx")
+  @@map("vehicle_compartment")
+  @@schema("branch")
+}
+
+model VehicleVersion {
+  id         String   @id @default(uuid())
+  vehicleId  String   @map("vehicle_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@unique([vehicleId, versionNo], map: "vehicle_version_udx")
+  @@map("vehicle_version")
+  @@schema("branch")
+}
+
+model VehicleAudit {
+  id        String   @id @default(uuid())
+  vehicleId String   @map("vehicle_id")
+  action    String
+  actor     String?
+  note      String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@map("vehicle_audit")
   @@schema("branch")
 }

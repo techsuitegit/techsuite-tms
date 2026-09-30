@@ -1,0 +1,572 @@
+{
+  "info": {
+    "_postman_id": "c4e8a1b2-7d30-4a16-b9f0-tms-vehicle",
+    "name": "TMS — Vehicle / Truck (WBS 2.13)",
+    "description": "Vehicle / Truck APIs on the Node process (port 3001). No UI. No sap-upsert.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + parents** first. Scripts save `token`, `materialId`, `shippingPointId`, `divisionId` (from that shipping point), and `capacityUomId` (UOM L).\n4. `costCentreId` is a placeholder UUID. The field is required. It is not looked up, because Cost Centre is not in this database yet.\n5. `divisionId` must be the division on the chosen Shipping Point.\n6. No trailing slash. Port **3001**, not 3000.\n\n## Status (SAFETY)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nPATCH on PUBLISHED or REJECTED → **DRAFT**\nPATCH on PENDING → 409\n\nCompartment volumes may add up to more than `capacity`. The save still succeeds and `warnings` explains it.\n\nvehicleClass: BOBTAIL_LPG | BOBTAIL_REFINED | TRANSPORT_TRACTOR | TANK_TRAILER | CYLINDER_TRUCK\nhazmatClass: CLASS_2_1 | CLASS_3 | COMBINED | NON_HAZMAT\naxleConfig: AXLE_2_RIGID | AXLE_3_RIGID | TRACTOR_TRI\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "materialId", "value": "" },
+    { "key": "shippingPointId", "value": "" },
+    { "key": "divisionId", "value": "" },
+    { "key": "capacityUomId", "value": "" },
+    { "key": "costCentreId", "value": "22222222-2222-4222-8222-222222222222" },
+    { "key": "vehicleId", "value": "" },
+    { "key": "rejectVehicleId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Material — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const hsd = rows.find((r) => r.code === 'HSD-BS-VI') || rows[0];",
+                  "  if (hsd && hsd.id) pm.collectionVariables.set('materialId', hsd.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/materials",
+            "description": "Published materials only. Prefers HSD-BS-VI. Saves {{materialId}}."
+          }
+        },
+        {
+          "name": "03 Lookups Shipping Point — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const row = rows.find((r) => r.code === 'SP-CHE-01') || rows[0];",
+                  "  if (row && row.id) pm.collectionVariables.set('shippingPointId', row.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/shipping-points",
+            "description": "Published shipping points. Prefers SP-CHE-01. Saves {{shippingPointId}}."
+          }
+        },
+        {
+          "name": "04 GET Shipping Point — save its division",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.divisionId) pm.collectionVariables.set('divisionId', json.divisionId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/shipping-points/{{shippingPointId}}",
+            "description": "Run after 03. The vehicle divisionId must be this shipping point's division. Saves {{divisionId}}."
+          }
+        },
+        {
+          "name": "05 Lookups UOM — save L",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const litre = rows.find((r) => r.code === 'L') || rows[0];",
+                  "  if (litre && litre.id) pm.collectionVariables.set('capacityUomId', litre.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/uom",
+            "description": "Published UOMs. Prefers L. Saves {{capacityUomId}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path",
+      "item": [
+        {
+          "name": "06 POST create",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('vehicleId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-26-PM\",\n  \"plate\": \"TN-09-PM-4421\",\n  \"vin\": \"MA1TA2PM000000001\",\n  \"make\": \"Tata\",\n  \"model\": \"LPT\",\n  \"modelYear\": 2024,\n  \"vehicleClass\": \"BOBTAIL_LPG\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 18000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"compartments\": [\n    { \"seq\": 1, \"materialId\": \"{{materialId}}\", \"volume\": 20000 }\n  ],\n  \"hazmatClass\": \"CLASS_2_1\",\n  \"axleConfig\": \"AXLE_2_RIGID\",\n  \"ptlMinPct\": 80,\n  \"gpsDeviceId\": \"GPS-PM-01\",\n  \"insuranceExpiry\": \"2027-03-31\",\n  \"fitnessExpiry\": \"2027-03-31\",\n  \"permitExpiry\": \"2027-03-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "201 { id, status: DRAFT, versionNo: 1, warnings }. Volume 20000 is above capacity 18000, so warnings is not empty. Saves {{vehicleId}} and {{versionNo}}. Run folder 0 first."
+          }
+        },
+        {
+          "name": "07 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}",
+            "description": "200 full truck plus compartments and parent labels. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "08 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles?q=T-26-PM&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. status filter: DRAFT | PENDING | PUBLISHED | REJECTED | ARCHIVED."
+          }
+        },
+        {
+          "name": "09 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}/submit",
+            "description": "DRAFT → PENDING. 200 { status: PENDING }. Empty reason → 400. Not DRAFT → 409. versionNo becomes 2."
+          }
+        },
+        {
+          "name": "10 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-26-PM\",\n  \"plate\": \"TN-09-PM-4421\",\n  \"vehicleClass\": \"BOBTAIL_LPG\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 18000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"compartments\": [\n    { \"seq\": 1, \"materialId\": \"{{materialId}}\", \"volume\": 9000 }\n  ],\n  \"hazmatClass\": \"CLASS_2_1\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}",
+            "description": "409 { code: LOCKED }. PENDING cannot be amended. versionNo after submit is 2."
+          }
+        },
+        {
+          "name": "11 POST approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }. Requires mdm.master.approve. Only PENDING can be approved. versionNo becomes 3."
+          }
+        },
+        {
+          "name": "12 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/vehicles",
+            "description": "200 [{ id, code, name }]. name is the licence plate. T-26-PM appears after approve."
+          }
+        },
+        {
+          "name": "13 GET by id — refresh version after approve",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}",
+            "description": "After create, submit, and approve, versionNo is 3. Run this before the published PATCH."
+          }
+        },
+        {
+          "name": "14 PATCH published — back to DRAFT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-26-PM\",\n  \"plate\": \"TN-09-PM-4421\",\n  \"vehicleClass\": \"BOBTAIL_LPG\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 18000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"compartments\": [\n    { \"seq\": 1, \"materialId\": \"{{materialId}}\", \"volume\": 9000 }\n  ],\n  \"hazmatClass\": \"CLASS_2_1\",\n  \"heightM\": 3.2,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Regulatory update\",\n  \"changeNote\": \"Height recorded\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}",
+            "description": "200 { id, versionNo, status: DRAFT, warnings: [] }. A published amend must be submitted and approved again. Wrong versionNo → 409 STALE_VERSION. Run request 13 first."
+          }
+        },
+        {
+          "name": "15 PATCH stale version (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-26-PM\",\n  \"plate\": \"TN-09-PM-4421\",\n  \"vehicleClass\": \"BOBTAIL_LPG\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 18000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}",
+            "description": "409 { code: STALE_VERSION }. versionNo 1 is no longer current after create, submit, approve, and amend."
+          }
+        },
+        {
+          "name": "16 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}/versions",
+            "description": "200 { versions[] }. Each snapshot includes the truck and its compartments."
+          }
+        },
+        {
+          "name": "17 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{vehicleId}}/audit",
+            "description": "200 { events[] }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Validation",
+      "item": [
+        {
+          "name": "18 GET list — no token (expect 401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "401 when Authorization is missing."
+          }
+        },
+        {
+          "name": "19 POST missing plate (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-NOPLATE\",\n  \"vehicleClass\": \"BOBTAIL_LPG\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 18000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "400 { code: VALIDATION, field: plate }."
+          }
+        },
+        {
+          "name": "20 POST division does not match Shipping Point (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-BADDIV\",\n  \"plate\": \"TN-09-BADDIV-01\",\n  \"vehicleClass\": \"CYLINDER_TRUCK\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"11111111-1111-4111-8111-111111111111\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 1000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "400 { code: VALIDATION, field: divisionId, message: divisionId must match the Shipping Point division }."
+          }
+        },
+        {
+          "name": "21 POST invalid vehicleClass (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-BADCLASS\",\n  \"plate\": \"TN-09-BADCLASS-01\",\n  \"vehicleClass\": \"TRUCK\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 1000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "400 { code: VALIDATION, field: vehicleClass }."
+          }
+        },
+        {
+          "name": "22 POST duplicate plate (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-DUP-PM\",\n  \"plate\": \"TN-09-PM-4421\",\n  \"vehicleClass\": \"BOBTAIL_REFINED\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 8000,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "409 plate already exists. Run request 06 first. Plate is unique on its own, separate from code."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reject path",
+      "item": [
+        {
+          "name": "23 POST create — cylinder truck, no compartments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('rejectVehicleId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-REJ-PM\",\n  \"plate\": \"TN-09-REJ-PM-01\",\n  \"vehicleClass\": \"CYLINDER_TRUCK\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 500,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles",
+            "description": "201 DRAFT. Compartments are optional. Saves {{rejectVehicleId}} and does not replace {{vehicleId}}."
+          }
+        },
+        {
+          "name": "24 POST submit reject sample",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit for reject test\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{rejectVehicleId}}/submit",
+            "description": "DRAFT → PENDING."
+          }
+        },
+        {
+          "name": "25 POST reject — missing note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{rejectVehicleId}}/reject",
+            "description": "400 { code: VALIDATION, field: note }. The row stays PENDING."
+          }
+        },
+        {
+          "name": "26 POST reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Plate image is unclear\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{rejectVehicleId}}/reject",
+            "description": "PENDING → REJECTED. 200 { status: REJECTED }."
+          }
+        },
+        {
+          "name": "27 PATCH rejected — back to DRAFT",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"T-REJ-PM\",\n  \"plate\": \"TN-09-REJ-PM-01\",\n  \"vehicleClass\": \"CYLINDER_TRUCK\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"costCentreId\": \"{{costCentreId}}\",\n  \"capacity\": 500,\n  \"capacityUomId\": \"{{capacityUomId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Plate corrected\",\n  \"versionNo\": 3\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/{{rejectVehicleId}}",
+            "description": "200 { status: DRAFT }. versionNo after create, submit, and reject is 3."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import and export",
+      "item": [
+        {
+          "name": "28 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/export",
+            "description": "200 text/csv of DRAFT and PUBLISHED rows. PENDING is omitted. compartments is a JSON column."
+          }
+        },
+        {
+          "name": "29 POST import JSON",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"T-IMP-PM\",\n    \"plate\": \"TN-09-IMP-PM-01\",\n    \"vehicleClass\": \"TANK_TRAILER\",\n    \"shippingPointId\": \"{{shippingPointId}}\",\n    \"divisionId\": \"{{divisionId}}\",\n    \"costCentreId\": \"{{costCentreId}}\",\n    \"capacity\": 12000,\n    \"capacityUomId\": \"{{capacityUomId}}\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"T-26-PM\",\n    \"plate\": \"TN-09-IMP-DUP-01\",\n    \"vehicleClass\": \"BOBTAIL_LPG\",\n    \"shippingPointId\": \"{{shippingPointId}}\",\n    \"divisionId\": \"{{divisionId}}\",\n    \"costCentreId\": \"{{costCentreId}}\",\n    \"capacity\": 1000,\n    \"capacityUomId\": \"{{capacityUomId}}\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/import",
+            "description": "200 { accepted, rejected }. Row 1 is accepted as DRAFT. Row 2 is rejected because code T-26-PM already exists. One bad row does not roll back the file. Run request 06 first."
+          }
+        },
+        {
+          "name": "30 POST import Excel (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/vnd.ms-excel" }],
+            "body": {
+              "mode": "raw",
+              "raw": "not-a-csv",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/vehicles/import",
+            "description": "400 { message: CSV template mismatch }. Excel is not accepted. Send text/csv or a JSON array."
+          }
+        }
+      ]
+    }
+  ]
+}

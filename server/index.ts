@@ -9,6 +9,7 @@ import { FeeController } from "@/app/api-services/controllers/fee.controller";
 import { PricingProcedureController } from "@/app/api-services/controllers/pricing-procedure.controller";
 import { MaterialController } from "@/app/api-services/controllers/material.controller";
 import { StorageTankController } from "@/app/api-services/controllers/storage-tank.controller";
+import { VehicleController } from "@/app/api-services/controllers/vehicle.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -21,6 +22,7 @@ import { FeeRepository } from "@/app/api-services/repositories/fee.repository";
 import { PricingProcedureRepository } from "@/app/api-services/repositories/pricing-procedure.repository";
 import { MaterialRepository } from "@/app/api-services/repositories/material.repository";
 import { StorageTankRepository } from "@/app/api-services/repositories/storage-tank.repository";
+import { VehicleRepository } from "@/app/api-services/repositories/vehicle.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
@@ -31,6 +33,7 @@ import { FeeRoutes } from "@/app/api-services/routes/fee.routes";
 import { PricingProcedureRoutes } from "@/app/api-services/routes/pricing-procedure.routes";
 import { MaterialRoutes } from "@/app/api-services/routes/material.routes";
 import { StorageTankRoutes } from "@/app/api-services/routes/storage-tank.routes";
+import { VehicleRoutes } from "@/app/api-services/routes/vehicle.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
@@ -41,6 +44,7 @@ import { FeeService } from "@/app/api-services/services/fee.service";
 import { PricingProcedureService } from "@/app/api-services/services/pricing-procedure.service";
 import { MaterialService } from "@/app/api-services/services/material.service";
 import { StorageTankService } from "@/app/api-services/services/storage-tank.service";
+import { VehicleService } from "@/app/api-services/services/vehicle.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -67,6 +71,7 @@ const materialController = new MaterialController(
 const storageTankController = new StorageTankController(
   new StorageTankService(new StorageTankRepository(pool)),
 );
+const vehicleController = new VehicleController(new VehicleService(new VehicleRepository(pool)));
 const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
 const pricingProcedureController = new PricingProcedureController(
   new PricingProcedureService(new PricingProcedureRepository(pool)),
@@ -84,6 +89,7 @@ const routes = [
   ...new UomRoutes(uomController).register(),
   ...new MaterialRoutes(materialController).register(),
   ...new StorageTankRoutes(storageTankController).register(),
+  ...new VehicleRoutes(vehicleController).register(),
   ...new FeeRoutes(feeController).register(),
   ...new PricingProcedureRoutes(pricingProcedureController).register(),
   ...new GeoRoutes(geoController).register(),
