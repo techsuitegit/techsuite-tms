@@ -220,21 +220,84 @@ model Pincode {
   @@schema("public")
 }
 
-/// WBS 2.3 stub so shipping_point.division_id can FK. zone_id is added with the full Division master.
-/// Applied in schema "branch" via sql/branch_shipping_point.sql. Do not Prisma migrate.
+/// WBS 2.3 Division. AUTO approval. Extends the shipping-point stub. No UI.
+/// legal_entity_id has no FK until WBS 2.1. Applied via sql/branch_division.sql.
 model Division {
-  id        String    @id @default(uuid())
-  code      String
-  name      String
-  status    String    @default("PUBLISHED")
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String    @id @default(uuid())
+  code              String
+  name              String
+  legalEntityId     String    @map("legal_entity_id")
+  zoneId            String?   @map("zone_id")
+  searchTerm1       String?   @map("search_term_1")
+  searchTerm2       String?   @map("search_term_2")
+  street            String?
+  district          String?
+  postalCode        String    @map("postal_code")
+  city              String
+  country           String
+  region            String?
+  timeZone          String    @map("time_zone")
+  poBox             String?   @map("po_box")
+  poBoxPostalCode   String?   @map("po_box_postal_code")
+  companyPostalCode String?   @map("company_postal_code")
+  language          String?
+  telephone         String?
+  extension         String?
+  mobile            String?
+  fax               String?
+  email             String?
+  standardMethod    String?   @map("standard_method")
+  comments          String?
+  validFrom         DateTime  @map("valid_from") @db.Date
+  validTo           DateTime? @map("valid_to") @db.Date
+  reason            String
+  changeNote        String?   @map("change_note")
+  status            String
+  versionNo         Int       @default(1) @map("version_no")
+  externalId        String?   @map("external_id")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  zone           Zone?          @relation(fields: [zoneId], references: [id])
   shippingPoints ShippingPoint[]
   vehicles       Vehicle[]
+  versions       DivisionVersion[]
+  audits         DivisionAudit[]
 
   @@map("division")
+  @@schema("branch")
+}
+
+model DivisionVersion {
+  id         String   @id @default(uuid())
+  divisionId String   @map("division_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  division Division @relation(fields: [divisionId], references: [id])
+
+  @@unique([divisionId, versionNo], map: "division_version_udx")
+  @@map("division_version")
+  @@schema("branch")
+}
+
+model DivisionAudit {
+  id         String   @id @default(uuid())
+  divisionId String   @map("division_id")
+  action     String
+  actor      String?
+  note       String?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  division Division @relation(fields: [divisionId], references: [id])
+
+  @@map("division_audit")
   @@schema("branch")
 }
 
@@ -1136,8 +1199,9 @@ model Zone {
   updatedBy   String?   @map("updated_by")
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  versions ZoneVersion[]
-  audits   ZoneAudit[]
+  versions   ZoneVersion[]
+  audits     ZoneAudit[]
+  divisions  Division[]
 
   @@map("zone")
   @@schema("branch")

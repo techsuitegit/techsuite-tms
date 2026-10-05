@@ -44,6 +44,7 @@ async function main() {
     "branch_telemetry_device.sql",
     "branch_haulier.sql",
     "branch_zone.sql",
+    "branch_division.sql",
   ];
   const pool = createAppPool();
   try {
