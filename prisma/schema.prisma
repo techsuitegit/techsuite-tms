@@ -264,6 +264,7 @@ model Division {
   zone           Zone?          @relation(fields: [zoneId], references: [id])
   shippingPoints ShippingPoint[]
   vehicles       Vehicle[]
+  costCentres    CostCentre[]
   versions       DivisionVersion[]
   audits         DivisionAudit[]
 
@@ -344,6 +345,7 @@ model ShippingPoint {
   dispatchedTanks StorageTank[] @relation("TankDispatcherPoint")
   vehicles Vehicle[]
   cylinders Cylinder[]
+  costCentres CostCentre[]
 
   @@map("shipping_point")
   @@schema("branch")
@@ -889,7 +891,73 @@ model PricingProcedureAudit {
   @@schema("branch")
 }
 
-/// WBS 2.13 Vehicle / Truck. SAFETY approval. cost_centre_id has no FK until WBS 2.4 exists.
+/// WBS 2.4 Cost Centre. FINANCIAL approval for annual budget and default GL. No UI.
+/// Applied via sql/branch_cost_centre.sql.
+model CostCentre {
+  id              String    @id @default(uuid())
+  code            String
+  name            String
+  divisionId      String    @map("division_id")
+  shippingPointId String?   @map("shipping_point_id")
+  type            String
+  budgetOwner     String?   @map("budget_owner")
+  defaultGl       String?   @map("default_gl")
+  annualBudget    Decimal?  @map("annual_budget") @db.Decimal(14, 2)
+  active          Boolean   @default(true)
+  validFrom       DateTime  @map("valid_from") @db.Date
+  validTo         DateTime? @map("valid_to") @db.Date
+  reason          String
+  changeNote      String?   @map("change_note")
+  status          String
+  versionNo       Int       @default(1) @map("version_no")
+  externalId      String?   @map("external_id")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy       String?   @map("created_by")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?   @map("updated_by")
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  division      Division       @relation(fields: [divisionId], references: [id])
+  shippingPoint ShippingPoint? @relation(fields: [shippingPointId], references: [id])
+  versions      CostCentreVersion[]
+  audits        CostCentreAudit[]
+
+  @@map("cost_centre")
+  @@schema("branch")
+}
+
+model CostCentreVersion {
+  id           String   @id @default(uuid())
+  costCentreId String   @map("cost_centre_id")
+  versionNo    Int      @map("version_no")
+  snapshot     Json
+  recordedAt   DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy   String?  @map("recorded_by")
+
+  costCentre CostCentre @relation(fields: [costCentreId], references: [id])
+
+  @@unique([costCentreId, versionNo], map: "cost_centre_version_udx")
+  @@map("cost_centre_version")
+  @@schema("branch")
+}
+
+model CostCentreAudit {
+  id           String   @id @default(uuid())
+  costCentreId String   @map("cost_centre_id")
+  action       String
+  actor        String?
+  note         String?
+  payload      Json?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  costCentre CostCentre @relation(fields: [costCentreId], references: [id])
+
+  @@map("cost_centre_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.13 Vehicle / Truck. SAFETY approval.
+/// cost_centre_id FK is added by sql/branch_cost_centre.sql when every existing id is a real cost centre.
 /// Applied via sql/branch_vehicle.sql. Do not expose a UI.
 model Vehicle {
   id               String    @id @default(uuid())

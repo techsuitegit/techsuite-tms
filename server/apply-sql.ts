@@ -45,6 +45,7 @@ async function main() {
     "branch_haulier.sql",
     "branch_zone.sql",
     "branch_division.sql",
+    "branch_cost_centre.sql",
   ];
   const pool = createAppPool();
   try {

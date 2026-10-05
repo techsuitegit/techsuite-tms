@@ -16,6 +16,7 @@ import { TelemetryDeviceController } from "@/app/api-services/controllers/teleme
 import { HaulierController } from "@/app/api-services/controllers/haulier.controller";
 import { ZoneController } from "@/app/api-services/controllers/zone.controller";
 import { DivisionController } from "@/app/api-services/controllers/division.controller";
+import { CostCentreController } from "@/app/api-services/controllers/cost-centre.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -35,6 +36,7 @@ import { TelemetryDeviceRepository } from "@/app/api-services/repositories/telem
 import { HaulierRepository } from "@/app/api-services/repositories/haulier.repository";
 import { ZoneRepository } from "@/app/api-services/repositories/zone.repository";
 import { DivisionRepository } from "@/app/api-services/repositories/division.repository";
+import { CostCentreRepository } from "@/app/api-services/repositories/cost-centre.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
@@ -52,6 +54,7 @@ import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-devic
 import { HaulierRoutes } from "@/app/api-services/routes/haulier.routes";
 import { ZoneRoutes } from "@/app/api-services/routes/zone.routes";
 import { DivisionRoutes } from "@/app/api-services/routes/division.routes";
+import { CostCentreRoutes } from "@/app/api-services/routes/cost-centre.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
@@ -69,6 +72,7 @@ import { TelemetryDeviceService } from "@/app/api-services/services/telemetry-de
 import { HaulierService } from "@/app/api-services/services/haulier.service";
 import { ZoneService } from "@/app/api-services/services/zone.service";
 import { DivisionService } from "@/app/api-services/services/division.service";
+import { CostCentreService } from "@/app/api-services/services/cost-centre.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -109,6 +113,7 @@ const telemetryDeviceController = new TelemetryDeviceController(
 const haulierController = new HaulierController(new HaulierService(new HaulierRepository(pool)));
 const zoneController = new ZoneController(new ZoneService(new ZoneRepository(pool)));
 const divisionController = new DivisionController(new DivisionService(new DivisionRepository(pool)));
+const costCentreController = new CostCentreController(new CostCentreService(new CostCentreRepository(pool)));
 const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
 const pricingProcedureController = new PricingProcedureController(
   new PricingProcedureService(new PricingProcedureRepository(pool)),
@@ -133,6 +138,7 @@ const routes = [
   ...new HaulierRoutes(haulierController).register(),
   ...new ZoneRoutes(zoneController).register(),
   ...new DivisionRoutes(divisionController).register(),
+  ...new CostCentreRoutes(costCentreController).register(),
   ...new FeeRoutes(feeController).register(),
   ...new PricingProcedureRoutes(pricingProcedureController).register(),
   ...new GeoRoutes(geoController).register(),

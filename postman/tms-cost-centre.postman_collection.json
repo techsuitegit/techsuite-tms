@@ -1,0 +1,539 @@
+{
+  "info": {
+    "_postman_id": "c8d2f5b0-3a69-4e44-9b21-tms-cost-centre",
+    "name": "TMS — Cost Centre (WBS 2.4)",
+    "description": "Cost Centre APIs on the Node process (port 3001). No UI. No sap-upsert. No DELETE.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. A published Division must already exist (run the Division collection and submit DIV-CHE).\n4. Run folder **0. Login + division** first. The script saves `token` and `divisionId`.\n5. No trailing slash. Port **3001**, not 3000.\n\n## Status (FINANCIAL for annualBudget and defaultGl only)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING** when annualBudget or defaultGl is set, otherwise **PUBLISHED**\nPOST approve on PENDING → **PUBLISHED**\nPOST reject on PENDING needs `{ note }` → **REJECTED**\nPATCH on PUBLISHED that changes annualBudget or defaultGl → **PENDING**\nPATCH on PUBLISHED that leaves those two fields unchanged → stays **PUBLISHED**\nPATCH on PENDING or ARCHIVED → 409 LOCKED\n\ntype: DELIVERY | FLEET | DEPOT | SALES | ADMIN | SERVICE\nactive is required and must be true or false.\nannualBudget, when set, is a non-negative number.\ndivisionId must be a published division.\nshippingPointId is optional. When set, that shipping point must be PUBLISHED and belong to the same division.\nreason: Correction | New record | Regulatory update | Commercial change\nCode is stored uppercase and is unique (`CC-CHE-DEL`).\nLookups return only status=PUBLISHED and active=true.\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "divisionId", "value": "" },
+    { "key": "costCentreId", "value": "" },
+    { "key": "secondCostCentreId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + division",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Division — save published parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const row = rows.find((r) => r.code === 'DIV-CHE') || rows[0];",
+                  "  if (row && row.id) pm.collectionVariables.set('divisionId', row.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/divisions",
+            "description": "Published divisions only. Prefers DIV-CHE. Saves {{divisionId}}. Create and submit a division first if this list is empty."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path — budget goes through approval",
+      "item": [
+        {
+          "name": "03 POST create",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('costCentreId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-CHE-DEL\",\n  \"name\": \"Chennai Delivery Ops\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"DELIVERY\",\n  \"budgetOwner\": \"South Ops\",\n  \"defaultGl\": \"5100-DEL\",\n  \"annualBudget\": 2500000,\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Budget does not skip DRAFT. Saves {{costCentreId}}. Run request 02 first. A second run returns 409 because CC-CHE-DEL already exists. A draft division returns 400 PARENT_NOT_PUBLISHED."
+          }
+        },
+        {
+          "name": "04 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}",
+            "description": "200 full cost centre, including divisionCode and divisionName. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "05 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres?q=CC-CHE-DEL&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. Soft-deleted rows are omitted."
+          }
+        },
+        {
+          "name": "06 POST submit — budget waits for approval",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Publish the cost centre\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}/submit",
+            "description": "DRAFT → PENDING because annualBudget and defaultGl are set. 200 { status: PENDING }. Empty reason → 400. Submit does not return versionNo."
+          }
+        },
+        {
+          "name": "07 POST approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }. Needs mdm.master.approve. Run request 06 first."
+          }
+        },
+        {
+          "name": "08 GET lookups — published and active only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/cost-centres",
+            "description": "200 [{ id, code, name }]. CC-CHE-DEL appears after approve. Inactive published rows are hidden. Vehicle uses this list."
+          }
+        },
+        {
+          "name": "09 GET by id — refresh version after approve",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}",
+            "description": "After create, submit, and approve, versionNo is 3. Run this before the published PATCH."
+          }
+        },
+        {
+          "name": "10 PATCH published name — stays PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-CHE-DEL\",\n  \"name\": \"Chennai Delivery Operations\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"DELIVERY\",\n  \"budgetOwner\": \"South Ops\",\n  \"defaultGl\": \"5100-DEL\",\n  \"annualBudget\": 2500000,\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Renamed only\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}",
+            "description": "200 { id, versionNo, status: PUBLISHED }. Name is not a financial field, so the row stays published. Wrong versionNo → 409 STALE_VERSION. Run request 09 first."
+          }
+        },
+        {
+          "name": "11 PATCH annualBudget — back to PENDING",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-CHE-DEL\",\n  \"name\": \"Chennai Delivery Operations\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"DELIVERY\",\n  \"budgetOwner\": \"South Ops\",\n  \"defaultGl\": \"5100-DEL\",\n  \"annualBudget\": 2750000,\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Raised the annual budget\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}",
+            "description": "200 { status: PENDING }. Changing annualBudget on a published row needs approval again. Changing defaultGl does the same. Run request 10 first so {{versionNo}} is current."
+          }
+        },
+        {
+          "name": "12 POST approve budget change",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Budget approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }. Run request 11 first."
+          }
+        },
+        {
+          "name": "13 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}/versions",
+            "description": "200 { versions[] }."
+          }
+        },
+        {
+          "name": "14 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{costCentreId}}/audit",
+            "description": "200 { events[] }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. No budget — submit publishes immediately",
+      "item": [
+        {
+          "name": "15 POST create without budget",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('secondCostCentreId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-ADM-HQ\",\n  \"name\": \"Head Office Admin\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"ADMIN\",\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "201 DRAFT. No annualBudget and no defaultGl. Saves {{secondCostCentreId}}. A second run returns 409."
+          }
+        },
+        {
+          "name": "16 POST submit — publishes immediately",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"No financial fields\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{secondCostCentreId}}/submit",
+            "description": "DRAFT → PUBLISHED. 200 { status: PUBLISHED }. Approval is skipped when both financial fields are empty. Run request 15 first."
+          }
+        },
+        {
+          "name": "17 POST approve (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{secondCostCentreId}}/approve",
+            "description": "409 Only PENDING rows can be approved. Submit already published this row."
+          }
+        },
+        {
+          "name": "18 POST reject (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Rejected\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{secondCostCentreId}}/reject",
+            "description": "409 Only PENDING rows can be rejected."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Validation",
+      "item": [
+        {
+          "name": "19 GET list — no token (expect 401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "401 when Authorization is missing."
+          }
+        },
+        {
+          "name": "20 POST without divisionId (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-NODIV\",\n  \"name\": \"Missing division\",\n  \"type\": \"DELIVERY\",\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "400 { code: VALIDATION, field: divisionId }."
+          }
+        },
+        {
+          "name": "21 POST negative budget (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-NEG\",\n  \"name\": \"Negative budget\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"FLEET\",\n  \"annualBudget\": -1,\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "400 { code: VALIDATION, field: annualBudget }."
+          }
+        },
+        {
+          "name": "22 POST unknown division (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-GHOST\",\n  \"name\": \"Unknown division\",\n  \"divisionId\": \"44444444-4444-4444-8444-444444444444\",\n  \"type\": \"DEPOT\",\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "400 { code: PARENT_NOT_FOUND, field: divisionId }."
+          }
+        },
+        {
+          "name": "23 POST duplicate code (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"cc-che-del\",\n  \"name\": \"Chennai again\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"DELIVERY\",\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "409 { code: CONFLICT, field: code }. Codes are stored uppercase, so cc-che-del matches CC-CHE-DEL. Run request 03 first."
+          }
+        },
+        {
+          "name": "24 POST draft for empty submit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('secondCostCentreId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"CC-FLEET-TMP\",\n  \"name\": \"Temporary fleet\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"type\": \"FLEET\",\n  \"active\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres",
+            "description": "201 DRAFT. Overwrites {{secondCostCentreId}} so the next request targets this row. A second run returns 409. There is no DELETE for Cost Centre."
+          }
+        },
+        {
+          "name": "25 POST submit with empty reason (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/{{secondCostCentreId}}/submit",
+            "description": "400 { code: VALIDATION, field: reason }. The row stays DRAFT. Run request 24 first."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import and export",
+      "item": [
+        {
+          "name": "26 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/export",
+            "description": "200 text/csv of DRAFT and PUBLISHED rows."
+          }
+        },
+        {
+          "name": "27 POST import JSON",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"CC-EAST-DEL\",\n    \"name\": \"East Delivery\",\n    \"divisionId\": \"{{divisionId}}\",\n    \"type\": \"DELIVERY\",\n    \"active\": true,\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"CC-CHE-DEL\",\n    \"name\": \"Chennai again\",\n    \"divisionId\": \"{{divisionId}}\",\n    \"type\": \"DELIVERY\",\n    \"active\": true,\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/import",
+            "description": "200 { accepted, rejected }. Row 1 is accepted as DRAFT. Row 2 is rejected because CC-CHE-DEL already exists. The file is not all-or-nothing. Run requests 02 and 03 first so {{divisionId}} is a published division."
+          }
+        },
+        {
+          "name": "28 POST import Excel (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/vnd.ms-excel" }],
+            "body": {
+              "mode": "raw",
+              "raw": "not-a-csv",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/cost-centres/import",
+            "description": "400 { message: CSV template mismatch }. Excel is not accepted. Send text/csv or a JSON array."
+          }
+        }
+      ]
+    }
+  ]
+}
