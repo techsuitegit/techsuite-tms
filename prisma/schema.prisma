@@ -220,7 +220,7 @@ model Pincode {
   @@schema("public")
 }
 
-/// WBS 2.3 stub so shipping_point.division_id can FK. Full Division master is not this story.
+/// WBS 2.3 stub so shipping_point.division_id can FK. zone_id is added with the full Division master.
 /// Applied in schema "branch" via sql/branch_shipping_point.sql. Do not Prisma migrate.
 model Division {
   id        String    @id @default(uuid())
@@ -1116,7 +1116,64 @@ model TelemetryDeviceAudit {
   @@schema("branch")
 }
 
-/// WBS 2.17 Haulier. FINANCIAL approval. Not a Vendor. zone_ids has no FK until WBS 2.2.
+/// WBS 2.2 Zone. AUTO approval. Geographical side only. No lat/long. No seed (WBS 2.18).
+/// Division.zone_id is owned by WBS 2.3. Applied via sql/branch_zone.sql. Do not expose a UI.
+model Zone {
+  id          String    @id @default(uuid())
+  code        String
+  name        String
+  description String?
+  validFrom   DateTime  @map("valid_from") @db.Date
+  validTo     DateTime? @map("valid_to") @db.Date
+  reason      String
+  changeNote  String?   @map("change_note")
+  status      String
+  versionNo   Int       @default(1) @map("version_no")
+  externalId  String?   @map("external_id")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy   String?   @map("created_by")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy   String?   @map("updated_by")
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions ZoneVersion[]
+  audits   ZoneAudit[]
+
+  @@map("zone")
+  @@schema("branch")
+}
+
+model ZoneVersion {
+  id         String   @id @default(uuid())
+  zoneId     String   @map("zone_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  zone Zone @relation(fields: [zoneId], references: [id])
+
+  @@unique([zoneId, versionNo], map: "zone_version_udx")
+  @@map("zone_version")
+  @@schema("branch")
+}
+
+model ZoneAudit {
+  id        String   @id @default(uuid())
+  zoneId    String   @map("zone_id")
+  action    String
+  actor     String?
+  note      String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  zone Zone @relation(fields: [zoneId], references: [id])
+
+  @@map("zone_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.17 Haulier. FINANCIAL approval. Not a Vendor. zone_ids stores Zone ids with no array FK.
 /// Applied via sql/branch_haulier.sql. Do not expose a UI.
 model Haulier {
   id                String    @id @default(uuid())

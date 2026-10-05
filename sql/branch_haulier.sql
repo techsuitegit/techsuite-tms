@@ -1,6 +1,6 @@
 -- WBS 2.17 Haulier — apply against POSTGRES_DB (txpoprdb).
 -- Do not Prisma migrate / db push.
--- FINANCIAL approval. Not a Vendor. No sap-upsert. zone_ids has no FK until WBS 2.2.
+-- FINANCIAL approval. Not a Vendor. No sap-upsert. zone_ids stores Zone ids; an array has no FK.
 
 create schema if not exists branch;
 

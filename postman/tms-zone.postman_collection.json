@@ -1,0 +1,406 @@
+{
+  "info": {
+    "_postman_id": "c4e8a1b2-7d30-4a16-9f02-tms-zone",
+    "name": "TMS — Zone (WBS 2.2)",
+    "description": "Zone APIs on the Node process (port 3001). No UI. No sap-upsert. No lat/long.\n\n## Setup\n1. `npm run api:sql` then `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login** first. The script saves `token`.\n4. Run **1. Happy path** in order. Scripts save `zoneId` and `versionNo`.\n5. No trailing slash. Port **3001**, not 3000.\n\n## Status (AUTO)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PUBLISHED**\nPATCH on PUBLISHED stays **PUBLISHED**\nPOST approve or reject → 409, because submit never sets PENDING\n\nCode is stored uppercase and must be unique (`Z-SOUTH`). Name is free text. North / South / East / West are not seeded here.\n\nDELETE sets `deleted_at`. It does not remove the row. A zone that already has a division returns 409 HAS_CHILDREN. Division does not store `zone_id` until WBS 2.3, so that case cannot be exercised yet.\n\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "zoneId", "value": "" },
+    { "key": "secondZoneId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path",
+      "item": [
+        {
+          "name": "02 POST create",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('zoneId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-SOUTH\",\n  \"name\": \"South Zone\",\n  \"description\": \"Geographical side for southern divisions\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones",
+            "description": "201 { id, status: DRAFT, versionNo: 1 }. Saves {{zoneId}}. A second run returns 409 because Z-SOUTH already exists."
+          }
+        },
+        {
+          "name": "03 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}",
+            "description": "200 full zone. Refreshes {{versionNo}}."
+          }
+        },
+        {
+          "name": "04 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones?q=Z-SOUTH&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. Soft-deleted rows are omitted."
+          }
+        },
+        {
+          "name": "05 POST submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Publish the zone\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}/submit",
+            "description": "DRAFT → PUBLISHED. 200 { status: PUBLISHED }. Empty reason → 400. versionNo becomes 2."
+          }
+        },
+        {
+          "name": "06 GET lookups — published only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/zones",
+            "description": "200 [{ id, code, name }]. Z-SOUTH appears after submit. Division will use this dropdown."
+          }
+        },
+        {
+          "name": "07 GET by id — refresh version after submit",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}",
+            "description": "After create and submit, versionNo is 2. Run this before the published PATCH."
+          }
+        },
+        {
+          "name": "08 PATCH published — stays PUBLISHED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-SOUTH\",\n  \"name\": \"South Zone\",\n  \"description\": \"Southern divisions\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Commercial change\",\n  \"changeNote\": \"Shortened the description\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}",
+            "description": "200 { id, versionNo, status: PUBLISHED }. AUTO does not send the row back to DRAFT. Wrong versionNo → 409 STALE_VERSION. Run request 07 first."
+          }
+        },
+        {
+          "name": "09 POST approve (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Approved\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}/approve",
+            "description": "409 Only PENDING rows can be approved. Submit already published the row. Needs mdm.master.approve."
+          }
+        },
+        {
+          "name": "10 POST reject (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Rejected\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}/reject",
+            "description": "409 Only PENDING rows can be rejected. An empty note on a real PENDING row would be 400."
+          }
+        },
+        {
+          "name": "11 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}/versions",
+            "description": "200 { versions[] }."
+          }
+        },
+        {
+          "name": "12 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{zoneId}}/audit",
+            "description": "200 { events[] }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Validation",
+      "item": [
+        {
+          "name": "13 GET list — no token (expect 401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones",
+            "description": "401 when Authorization is missing."
+          }
+        },
+        {
+          "name": "14 POST without name (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-WEST\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones",
+            "description": "400 { code: VALIDATION, field: name }."
+          }
+        },
+        {
+          "name": "15 POST latitude (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-EAST\",\n  \"name\": \"East Zone\",\n  \"latitude\": 13.08,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones",
+            "description": "400 { code: VALIDATION, field: latitude }. A zone has no coordinates."
+          }
+        },
+        {
+          "name": "16 POST duplicate code (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"z-south\",\n  \"name\": \"South again\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones",
+            "description": "409 { code: CONFLICT, field: code }. Codes are stored uppercase, so z-south matches Z-SOUTH. Run request 02 first."
+          }
+        },
+        {
+          "name": "17 POST second zone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('secondZoneId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-NORTH\",\n  \"name\": \"North Zone\",\n  \"description\": \"Geographical side for northern divisions\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones",
+            "description": "201 DRAFT. Saves {{secondZoneId}} for the soft-delete request. A second run returns 409."
+          }
+        },
+        {
+          "name": "18 POST submit with empty reason (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{secondZoneId}}/submit",
+            "description": "400 { code: VALIDATION, field: reason }. The row stays DRAFT. Run request 17 first."
+          }
+        },
+        {
+          "name": "19 DELETE second zone",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones/{{secondZoneId}}",
+            "description": "200 { id, deleted: true }. Sets deleted_at. The row is hidden from list and lookup. If a division later points at this zone, the same call returns 409 HAS_CHILDREN."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Import and export",
+      "item": [
+        {
+          "name": "20 GET export",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/zones/export",
+            "description": "200 text/csv of DRAFT and PUBLISHED rows. Soft-deleted rows are omitted."
+          }
+        },
+        {
+          "name": "21 POST import JSON",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"Z-EAST\",\n    \"name\": \"East Zone\",\n    \"description\": \"Geographical side for eastern divisions\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  },\n  {\n    \"code\": \"Z-SOUTH\",\n    \"name\": \"South again\",\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/import",
+            "description": "200 { accepted, rejected }. Row 1 is accepted as DRAFT. Row 2 is rejected because Z-SOUTH already exists. The file is not all-or-nothing. Run request 02 first."
+          }
+        },
+        {
+          "name": "22 POST import Excel (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/vnd.ms-excel" }],
+            "body": {
+              "mode": "raw",
+              "raw": "not-a-csv",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/zones/import",
+            "description": "400 { message: CSV template mismatch }. Excel is not accepted. Send text/csv or a JSON array."
+          }
+        }
+      ]
+    }
+  ]
+}

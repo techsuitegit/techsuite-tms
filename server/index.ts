@@ -14,6 +14,7 @@ import { PtlThresholdController } from "@/app/api-services/controllers/ptl-thres
 import { CylinderController } from "@/app/api-services/controllers/cylinder.controller";
 import { TelemetryDeviceController } from "@/app/api-services/controllers/telemetry-device.controller";
 import { HaulierController } from "@/app/api-services/controllers/haulier.controller";
+import { ZoneController } from "@/app/api-services/controllers/zone.controller";
 import { UomController } from "@/app/api-services/controllers/uom.controller";
 import { VendorController } from "@/app/api-services/controllers/vendor.controller";
 import { JwtMiddleware } from "@/app/api-services/jwt/jwt.middleware";
@@ -31,6 +32,7 @@ import { PtlThresholdRepository } from "@/app/api-services/repositories/ptl-thre
 import { CylinderRepository } from "@/app/api-services/repositories/cylinder.repository";
 import { TelemetryDeviceRepository } from "@/app/api-services/repositories/telemetry-device.repository";
 import { HaulierRepository } from "@/app/api-services/repositories/haulier.repository";
+import { ZoneRepository } from "@/app/api-services/repositories/zone.repository";
 import { UomRepository } from "@/app/api-services/repositories/uom.repository";
 import { VendorRepository } from "@/app/api-services/repositories/vendor.repository";
 import { LoginRoutes } from "@/app/api-services/routes/login.routes";
@@ -46,6 +48,7 @@ import { PtlThresholdRoutes } from "@/app/api-services/routes/ptl-threshold.rout
 import { CylinderRoutes } from "@/app/api-services/routes/cylinder.routes";
 import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-device.routes";
 import { HaulierRoutes } from "@/app/api-services/routes/haulier.routes";
+import { ZoneRoutes } from "@/app/api-services/routes/zone.routes";
 import { UomRoutes } from "@/app/api-services/routes/uom.routes";
 import { VendorRoutes } from "@/app/api-services/routes/vendor.routes";
 import { LoginService } from "@/app/api-services/services/login-service";
@@ -61,6 +64,7 @@ import { PtlThresholdService } from "@/app/api-services/services/ptl-threshold.s
 import { CylinderService } from "@/app/api-services/services/cylinder.service";
 import { TelemetryDeviceService } from "@/app/api-services/services/telemetry-device.service";
 import { HaulierService } from "@/app/api-services/services/haulier.service";
+import { ZoneService } from "@/app/api-services/services/zone.service";
 import { UomService } from "@/app/api-services/services/uom.service";
 import { VendorService } from "@/app/api-services/services/vendor.service";
 import { createAppPool } from "./db/pool";
@@ -99,6 +103,7 @@ const telemetryDeviceController = new TelemetryDeviceController(
   new TelemetryDeviceService(new TelemetryDeviceRepository(pool)),
 );
 const haulierController = new HaulierController(new HaulierService(new HaulierRepository(pool)));
+const zoneController = new ZoneController(new ZoneService(new ZoneRepository(pool)));
 const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
 const pricingProcedureController = new PricingProcedureController(
   new PricingProcedureService(new PricingProcedureRepository(pool)),
@@ -121,6 +126,7 @@ const routes = [
   ...new CylinderRoutes(cylinderController).register(),
   ...new TelemetryDeviceRoutes(telemetryDeviceController).register(),
   ...new HaulierRoutes(haulierController).register(),
+  ...new ZoneRoutes(zoneController).register(),
   ...new FeeRoutes(feeController).register(),
   ...new PricingProcedureRoutes(pricingProcedureController).register(),
   ...new GeoRoutes(geoController).register(),
