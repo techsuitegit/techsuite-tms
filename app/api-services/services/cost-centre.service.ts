@@ -64,8 +64,9 @@ export class CostCentreService {
   async submit(id: string, reason: string, actor: string) {
     if (!reason.trim()) throw new MdmError("VALIDATION", "reason is required", 400, "reason");
     const current = await this.getById(id);
-    await this.assertParents(rowToInput(current));
-    const financial = hasFinancial(current.annualBudget, current.defaultGl);
+    const input = rowToInput(current);
+    await this.assertParents(input);
+    const financial = hasFinancial(input.annualBudget, input.defaultGl);
     return this.transition(id, actor, reason, (row) => {
       if (row.status !== "DRAFT") throw new MdmError("CONFLICT", "Only DRAFT rows can be submitted", 409);
       return { status: financial ? "PENDING" : "PUBLISHED", action: "SUBMIT" };
@@ -208,7 +209,7 @@ function rowToInput(row: Record<string, unknown>): CostCentreInput {
   };
 }
 
-function serializeRow(row: Record<string, unknown>) {
+function serializeRow(row: Record<string, unknown>): Record<string, unknown> {
   return {
     ...row,
     annualBudget: row.annualBudget == null ? null : Number(row.annualBudget),
@@ -217,7 +218,7 @@ function serializeRow(row: Record<string, unknown>) {
   };
 }
 
-function dateOnly(value: unknown) {
+function dateOnly(value: unknown): string | null {
   if (value instanceof Date) {
     const year = value.getFullYear();
     const month = String(value.getMonth() + 1).padStart(2, "0");
@@ -225,7 +226,7 @@ function dateOnly(value: unknown) {
     return `${year}-${month}-${day}`;
   }
   if (typeof value === "string" && value.length >= 10) return value.slice(0, 10);
-  return value ?? null;
+  return null;
 }
 
 function csvCell(value: unknown) {
