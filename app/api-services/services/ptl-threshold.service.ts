@@ -6,9 +6,15 @@ import {
 } from "../repositories/ptl-threshold.repository";
 import type { PtlThresholdInput } from "./ptl-threshold-types";
 import { parseCreateBody, parseStatusFilter } from "./ptl-threshold-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const PTL_INDEX_CODE = "PTL";
 
 export class PtlThresholdService {
-  constructor(private readonly repo: PtlThresholdRepository) {}
+  constructor(
+    private readonly repo: PtlThresholdRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     parseStatusFilter(query.get("status"));
@@ -31,12 +37,20 @@ export class PtlThresholdService {
   }
 
   async create(input: PtlThresholdInput, actor: string) {
+    const id = await this.nextPtlId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
+  }
+
+  private async nextPtlId() {
+    const id = await this.index.getGindexMst(PTL_INDEX_CODE);
+    await this.index.updateGindexMst(PTL_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: PtlThresholdInput, actor: string) {

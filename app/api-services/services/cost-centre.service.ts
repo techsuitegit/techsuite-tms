@@ -6,9 +6,15 @@ import {
 } from "../repositories/cost-centre.repository";
 import type { CostCentreInput } from "./cost-centre-types";
 import { parseCreateBody, parseStatusFilter } from "./cost-centre-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const COST_CENTRE_INDEX_CODE = "CCT";
 
 export class CostCentreService {
-  constructor(private readonly repo: CostCentreRepository) {}
+  constructor(
+    private readonly repo: CostCentreRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -31,11 +37,13 @@ export class CostCentreService {
 
   async create(input: CostCentreInput, actor: string) {
     await this.assertParents(input);
+    const id = await this.nextCostCentreId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor);
+      const created = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: created.id, status: "DRAFT" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "DRAFT" as const, versionNo: created.versionNo };
     });
   }
 
@@ -148,6 +156,12 @@ export class CostCentreService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextCostCentreId() {
+    const id = await this.index.getGindexMst(COST_CENTRE_INDEX_CODE);
+    await this.index.updateGindexMst(COST_CENTRE_INDEX_CODE);
+    return id;
   }
 
   private async assertParents(input: CostCentreInput) {

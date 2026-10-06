@@ -24,6 +24,7 @@ export type PricingConditionInput = {
 };
 
 export type PricingRuleInput = {
+  id?: string;
   code: string;
   priority: number;
   join: JoinOp;

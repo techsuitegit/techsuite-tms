@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import { mapDbError, type FeeRepository, type FeeRow } from "../repositories/fee.repository";
 import type { FeeInput } from "./fee-types";
 import { parseCreateBody, parseStatusFilter } from "./fee-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const FEE_INDEX_CODE = "FEE";
 
 export class FeeService {
-  constructor(private readonly repo: FeeRepository) {}
+  constructor(
+    private readonly repo: FeeRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -26,11 +32,13 @@ export class FeeService {
   }
 
   async create(input: FeeInput, actor: string) {
+    const id = await this.nextFeeId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor);
+      const created = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: created.id, status: "DRAFT" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "DRAFT" as const, versionNo: created.versionNo };
     });
   }
 
@@ -149,6 +157,12 @@ export class FeeService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextFeeId() {
+    const id = await this.index.getGindexMst(FEE_INDEX_CODE);
+    await this.index.updateGindexMst(FEE_INDEX_CODE);
+    return id;
   }
 }
 

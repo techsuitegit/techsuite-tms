@@ -1,4 +1,6 @@
 import { MdmError } from "../errors/mdm-error";
+import { isStorageTankId } from "./storage-tank-validation";
+import { isVendorId } from "./vendor-validation";
 import {
   CADENCES,
   CHANGE_REASONS,
@@ -13,10 +15,15 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
+const TELEMETRY_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+
+export function isTelemetryDeviceId(value: string) {
+  return TELEMETRY_ID_RE.test(value);
+}
 
 export function parseCreateBody(body: Record<string, unknown>): TelemetryDeviceInput {
   rejectUnknown(body, CREATE_FIELDS);
-  return parseFields(body);
+  return parseFields(body, false);
 }
 
 export function parseUpdateBody(body: Record<string, unknown>): TelemetryDeviceInput {
@@ -37,18 +44,15 @@ export function parseStatusFilter(value: string | null) {
   return value;
 }
 
-function parseFields(body: Record<string, unknown>): TelemetryDeviceInput {
-  const code = requiredString(body, "code").toUpperCase();
-  if (!CODE_RE.test(code)) {
-    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
-  }
+function parseFields(body: Record<string, unknown>, requireCode = true): TelemetryDeviceInput {
+  const code = readCode(body, requireCode);
   const validFrom = requiredDate(body, "validFrom");
   const validTo = optionalDate(body, "validTo");
   if (validTo && validTo < validFrom) {
     throw new MdmError("VALIDATION", "validTo must be on or after validFrom", 400, "validTo");
   }
   const pairingState = requiredEnum(body, "pairingState", PAIRING_STATES);
-  const storageTankId = optionalUuid(body, "storageTankId");
+  const storageTankId = optionalStorageTankId(body, "storageTankId");
   if (pairingState === "UNPAIRED_STOCK" && storageTankId) {
     throw new MdmError("VALIDATION", "storageTankId must be null when pairingState is UNPAIRED_STOCK", 400, "storageTankId");
   }
@@ -58,7 +62,7 @@ function parseFields(body: Record<string, unknown>): TelemetryDeviceInput {
 
   return {
     code,
-    vendorId: requiredUuid(body, "vendorId"),
+    vendorId: requiredVendorId(body, "vendorId"),
     model: optionalString(body, "model"),
     imei: optionalString(body, "imei"),
     pairingState,
@@ -90,6 +94,22 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
   }
 }
 
+function readCode(body: Record<string, unknown>, required: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (!required) return "";
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  const code = value.trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
+  }
+  return code;
+}
+
 function requiredString(body: Record<string, unknown>, field: string) {
   const value = body[field];
   if (typeof value !== "string" || !value.trim()) throw new MdmError("VALIDATION", `${field} is required`, 400, field);
@@ -107,6 +127,21 @@ function optionalEnum<T extends string>(body: Record<string, unknown>, field: st
   if (!value) return null;
   if (!allowed.includes(value as T)) throw new MdmError("VALIDATION", `${field} is invalid`, 400, field);
   return value as T;
+}
+
+function requiredVendorId(body: Record<string, unknown>, field: string) {
+  const value = requiredString(body, field);
+  if (!isVendorId(value)) throw new MdmError("VALIDATION", `${field} must be a vendor id`, 400, field);
+  return value;
+}
+
+function optionalStorageTankId(body: Record<string, unknown>, field: string) {
+  const value = body[field];
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !isStorageTankId(value)) {
+    throw new MdmError("VALIDATION", `${field} must be a storage tank id`, 400, field);
+  }
+  return value;
 }
 
 function requiredUuid(body: Record<string, unknown>, field: string) {

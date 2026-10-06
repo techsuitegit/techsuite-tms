@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import type { VendorInput } from "./vendor-types";
 import { parseStatusFilter, parseTypeFilter } from "./vendor-validation";
 import { type VendorRepository } from "../repositories/vendor.repository";
+import { indexgenerater } from "./indexgenerater";
+
+const VENDOR_INDEX_CODE = "VND";
 
 export class VendorService {
-  constructor(private readonly repo: VendorRepository) {}
+  constructor(
+    private readonly repo: VendorRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -34,7 +40,9 @@ export class VendorService {
     return this.repo.withTransaction(async (client) => {
       const existing = await this.repo.findByExternalId(client, input.externalId);
       if (!existing) {
-        const created = await this.repo.insert(client, input, actor);
+        const id = await this.nextVendorId();
+        if (!input.code) input.code = id;
+        const created = await this.repo.insert(client, input, actor, id);
         await this.repo.snapshot(client, created.id, actor);
         await this.repo.audit(client, created.id, "SAP_UPSERT", actor, input.changeNote ?? null, {
           status: "PUBLISHED",
@@ -65,6 +73,12 @@ export class VendorService {
 
   async lookups(type: string | null) {
     return this.repo.lookups(parseTypeFilter(type));
+  }
+
+  private async nextVendorId() {
+    const id = await this.index.getGindexMst(VENDOR_INDEX_CODE);
+    await this.index.updateGindexMst(VENDOR_INDEX_CODE);
+    return id;
   }
 }
 

@@ -103,16 +103,16 @@ export class VendorRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: VendorInput, actor: string) {
+  async insert(client: PoolClient, input: VendorInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.vendor (
-         code, name, type, active, valid_from, valid_to, reason, change_note,
+         id, code, name, type, active, valid_from, valid_to, reason, change_note,
          status, version_no, external_id, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8, 'PUBLISHED', 1, $9, $10, $10
+         $1,$2,$3,$4,$5,$6,$7,$8,$9, 'PUBLISHED', 1, $10, $11, $11
        )
        returning id, status, version_no as "versionNo", external_id as "externalId"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number; externalId: string };
   }

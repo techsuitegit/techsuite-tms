@@ -109,14 +109,14 @@ export class PricingProcedureRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: PricingProcedureInput, actor: string) {
+  async insert(client: PoolClient, input: PricingProcedureInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.pricing_procedure (
-         code, name, access_sequence, active, valid_from, valid_to, reason, change_note, external_id,
+         id, code, name, access_sequence, active, valid_from, valid_to, reason, change_note, external_id,
          status, version_no, created_by, updated_by
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9, 'DRAFT', 1, $10, $10)
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, 'DRAFT', 1, $11, $11)
        returning id, status, version_no as "versionNo"`,
-      [...headerValues(input), actor],
+      [id, ...headerValues(input), actor],
     );
     const created = inserted.rows[0] as { id: string; status: string; versionNo: number };
     await this.replaceRules(client, created.id, input.rules);
@@ -245,10 +245,11 @@ export class PricingProcedureRepository {
     );
     await client.query(`delete from branch.pricing_rule where procedure_id=$1`, [procedureId]);
     for (const rule of rules) {
+      if (!rule.id) throw new MdmError("VALIDATION", "Pricing rule id is required", 500);
       const inserted = await client.query(
-        `insert into branch.pricing_rule (procedure_id, code, priority, join_op, amount)
-         values ($1,$2,$3,$4,$5) returning id`,
-        [procedureId, rule.code, rule.priority, rule.join, rule.amount],
+        `insert into branch.pricing_rule (id, procedure_id, code, priority, join_op, amount)
+         values ($1,$2,$3,$4,$5,$6) returning id`,
+        [rule.id, procedureId, rule.code, rule.priority, rule.join, rule.amount],
       );
       const ruleId = inserted.rows[0].id as string;
       for (const condition of rule.conditions) {

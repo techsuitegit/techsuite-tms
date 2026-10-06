@@ -114,16 +114,16 @@ export class CostCentreRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: CostCentreInput, actor: string) {
+  async insert(client: PoolClient, input: CostCentreInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.cost_centre (
-         code, name, division_id, shipping_point_id, type, budget_owner, default_gl, annual_budget, active,
+         id, code, name, division_id, shipping_point_id, type, budget_owner, default_gl, annual_budget, active,
          valid_from, valid_to, reason, change_note, external_id, status, version_no, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'DRAFT',1,$15,$15
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'DRAFT',1,$16,$16
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

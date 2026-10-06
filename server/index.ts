@@ -64,6 +64,7 @@ import { TerminalService } from "@/app/api-services/services/terminal.service";
 import { FeeService } from "@/app/api-services/services/fee.service";
 import { PricingProcedureService } from "@/app/api-services/services/pricing-procedure.service";
 import { MaterialService } from "@/app/api-services/services/material.service";
+import { indexgenerater } from "@/app/api-services/services/indexgenerater";
 import { StorageTankService } from "@/app/api-services/services/storage-tank.service";
 import { VehicleService } from "@/app/api-services/services/vehicle.service";
 import { PtlThresholdService } from "@/app/api-services/services/ptl-threshold.service";
@@ -88,40 +89,48 @@ const router = new HttpRouter(jwtMiddleware, rbacMiddleware);
 
 const loginController = new LoginController(new LoginService(new IamRepository()));
 const shippingPointController = new ShippingPointController(
-  new ShippingPointService(new ShippingPointRepository(pool)),
+  new ShippingPointService(new ShippingPointRepository(pool), new indexgenerater(pool)),
 );
-const vendorController = new VendorController(new VendorService(new VendorRepository(pool)));
+const vendorController = new VendorController(new VendorService(new VendorRepository(pool), new indexgenerater(pool)));
 const uomRepository = new UomRepository(pool);
-const uomController = new UomController(new UomService(uomRepository));
+const uomController = new UomController(new UomService(uomRepository, new indexgenerater(pool)));
 const materialController = new MaterialController(
-  new MaterialService(new MaterialRepository(pool), uomRepository),
+  new MaterialService(new MaterialRepository(pool), uomRepository, new indexgenerater(pool)),
 );
 const storageTankController = new StorageTankController(
-  new StorageTankService(new StorageTankRepository(pool)),
+  new StorageTankService(new StorageTankRepository(pool), new indexgenerater(pool)),
 );
 const ptlThresholdRepository = new PtlThresholdRepository(pool);
 const ptlThresholdController = new PtlThresholdController(
-  new PtlThresholdService(ptlThresholdRepository),
+  new PtlThresholdService(ptlThresholdRepository, new indexgenerater(pool)),
 );
 const vehicleController = new VehicleController(
-  new VehicleService(new VehicleRepository(pool), ptlThresholdRepository),
+  new VehicleService(new VehicleRepository(pool), ptlThresholdRepository, new indexgenerater(pool)),
 );
-const cylinderController = new CylinderController(new CylinderService(new CylinderRepository(pool)));
+const cylinderController = new CylinderController(
+  new CylinderService(new CylinderRepository(pool), new indexgenerater(pool)),
+);
 const telemetryDeviceController = new TelemetryDeviceController(
-  new TelemetryDeviceService(new TelemetryDeviceRepository(pool)),
+  new TelemetryDeviceService(new TelemetryDeviceRepository(pool), new indexgenerater(pool)),
 );
-const haulierController = new HaulierController(new HaulierService(new HaulierRepository(pool)));
-const zoneController = new ZoneController(new ZoneService(new ZoneRepository(pool)));
-const divisionController = new DivisionController(new DivisionService(new DivisionRepository(pool)));
-const costCentreController = new CostCentreController(new CostCentreService(new CostCentreRepository(pool)));
-const feeController = new FeeController(new FeeService(new FeeRepository(pool)));
+const haulierController = new HaulierController(
+  new HaulierService(new HaulierRepository(pool), new indexgenerater(pool)),
+);
+const zoneController = new ZoneController(new ZoneService(new ZoneRepository(pool), new indexgenerater(pool)));
+const divisionController = new DivisionController(
+  new DivisionService(new DivisionRepository(pool), new indexgenerater(pool)),
+);
+const costCentreController = new CostCentreController(
+  new CostCentreService(new CostCentreRepository(pool), new indexgenerater(pool)),
+);
+const feeController = new FeeController(new FeeService(new FeeRepository(pool), new indexgenerater(pool)));
 const pricingProcedureController = new PricingProcedureController(
-  new PricingProcedureService(new PricingProcedureRepository(pool)),
+  new PricingProcedureService(new PricingProcedureRepository(pool), new indexgenerater(pool)),
 );
 const geoRepository = new GeoRepository(pool);
 const geoController = new GeoController(new GeoService(geoRepository));
 const terminalController = new TerminalController(
-  new TerminalService(new TerminalRepository(pool), geoRepository),
+  new TerminalService(new TerminalRepository(pool), geoRepository, new indexgenerater(pool)),
 );
 
 const routes = [

@@ -49,6 +49,7 @@ export const CREATE_FIELDS = [
 export const UPDATE_FIELDS = [...CREATE_FIELDS, "versionNo"] as const;
 
 export type CompartmentInput = {
+  id?: string;
   seq: number;
   materialId: string | null;
   volume: number | null;

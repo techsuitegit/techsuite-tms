@@ -99,16 +99,16 @@ export class ZoneRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async insert(client: PoolClient, input: ZoneInput, actor: string) {
+  async insert(client: PoolClient, input: ZoneInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.zone (
-         code, name, description, valid_from, valid_to, reason, change_note,
+         id, code, name, description, valid_from, valid_to, reason, change_note,
          status, version_no, external_id, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,'DRAFT',1,$8,$9,$9
+         $1,$2,$3,$4,$5,$6,$7,$8,'DRAFT',1,$9,$10,$10
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

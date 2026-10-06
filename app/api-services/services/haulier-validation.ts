@@ -1,4 +1,5 @@
 import { MdmError } from "../errors/mdm-error";
+import { isZoneId } from "./zone-validation";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,
@@ -13,11 +14,16 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
+const HAULIER_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isHaulierId(value: string) {
+  return HAULIER_ID_RE.test(value);
+}
 
 export function parseCreateBody(body: Record<string, unknown>): HaulierInput {
   rejectUnknown(body, CREATE_FIELDS);
-  return parseFields(body);
+  return parseFields(body, false);
 }
 
 export function parseUpdateBody(body: Record<string, unknown>): HaulierInput {
@@ -42,11 +48,8 @@ export function isExpiring(contractEnd: string) {
   return contractEnd.slice(0, 10) < plusDays(60);
 }
 
-function parseFields(body: Record<string, unknown>): HaulierInput {
-  const code = requiredString(body, "code").toUpperCase();
-  if (!CODE_RE.test(code)) {
-    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
-  }
+function parseFields(body: Record<string, unknown>, requireCode = true): HaulierInput {
+  const code = readCode(body, requireCode);
   const validFrom = requiredDate(body, "validFrom");
   const validTo = optionalDate(body, "validTo");
   if (validTo && validTo < validFrom) {
@@ -125,7 +128,7 @@ function optionalUuidList(body: Record<string, unknown>, field: string) {
   if (!Array.isArray(value)) throw new MdmError("VALIDATION", `${field} must be a list`, 400, field);
   const seen = new Set<string>();
   for (const item of value) {
-    if (typeof item !== "string" || !UUID_RE.test(item)) {
+    if (typeof item !== "string" || !isZoneId(item)) {
       throw new MdmError("VALIDATION", `${field} must be UUIDs`, 400, field);
     }
     if (seen.has(item)) throw new MdmError("VALIDATION", `${field} contains a duplicate`, 400, field);
@@ -192,6 +195,22 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
   for (const key of Object.keys(body)) {
     if (!allowed.includes(key)) throw new MdmError("VALIDATION", `Unknown field ${key}`, 400, key);
   }
+}
+
+function readCode(body: Record<string, unknown>, required: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (!required) return "";
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  const code = value.trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
+  }
+  return code;
 }
 
 function requiredString(body: Record<string, unknown>, field: string) {

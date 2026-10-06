@@ -102,20 +102,20 @@ export class ShippingPointRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: ShippingPointInput, actor: string) {
+  async insert(client: PoolClient, input: ShippingPointInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.shipping_point (
-         code, name, division_id, type, address, latitude, longitude, geofence_radius_m,
+         id, code, name, division_id, type, address, latitude, longitude, geofence_radius_m,
          opening_hours, loading_bays, loading_rate_lpm, mid_shift_reload, products_stocked,
          lead_dispatcher, phone, hazmat_class, permit_no, permit_expiry, erp_ref,
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
-         'DRAFT', 1, $24, $25, $25
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+         'DRAFT', 1, $25, $26, $26
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

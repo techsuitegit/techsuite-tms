@@ -97,10 +97,10 @@ export class HaulierRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: HaulierInput, actor: string) {
+  async insert(client: PoolClient, input: HaulierInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.haulier (
-         code, name, registration, dispatch_contact, dispatch_phone, email,
+         id, code, name, registration, dispatch_contact, dispatch_phone, email,
          vehicle_types, units_available, zone_ids, hazmat_certified,
          rate_basis, rate, min_charge, demurrage, fuel_surcharge, surcharge_unit,
          contract_start, contract_end, insurance_expiry, payment_terms_text,
@@ -108,16 +108,17 @@ export class HaulierRepository {
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,
-         $7::text[],$8,$9::uuid[],$10,
-         $11,$12,$13,$14,$15,$16,
-         $17,$18,$19,$20,
-         $21,$22,$23,$24,$25,$26,
-         $27,$28,$29,$30,'DRAFT',1,$31,
-         $32,$32
+         $1,
+         $2,$3,$4,$5,$6,$7,
+         $8::text[],$9,$10::text[],$11,
+         $12,$13,$14,$15,$16,$17,
+         $18,$19,$20,$21,
+         $22,$23,$24,$25,$26,$27,
+         $28,$29,$30,$31,'DRAFT',1,$32,
+         $33,$33
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }
@@ -127,7 +128,7 @@ export class HaulierRepository {
     await client.query(
       `update branch.haulier set
          code=$1, name=$2, registration=$3, dispatch_contact=$4, dispatch_phone=$5, email=$6,
-         vehicle_types=$7::text[], units_available=$8, zone_ids=$9::uuid[], hazmat_certified=$10,
+         vehicle_types=$7::text[], units_available=$8, zone_ids=$9::text[], hazmat_certified=$10,
          rate_basis=$11, rate=$12, min_charge=$13, demurrage=$14, fuel_surcharge=$15, surcharge_unit=$16,
          contract_start=$17, contract_end=$18, insurance_expiry=$19, payment_terms_text=$20,
          rating=$21, on_time_pct=$22, accuracy_pct=$23, trips_ytd=$24, volume_ytd=$25, notes=$26,

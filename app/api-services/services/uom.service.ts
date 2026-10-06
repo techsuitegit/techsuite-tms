@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import type { UomInput } from "./uom-types";
 import { parseStatusFilter } from "./uom-validation";
 import { type UomRepository } from "../repositories/uom.repository";
+import { indexgenerater } from "./indexgenerater";
+
+const UOM_INDEX_CODE = "UOM";
 
 export class UomService {
-  constructor(private readonly repo: UomRepository) {}
+  constructor(
+    private readonly repo: UomRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -30,14 +36,22 @@ export class UomService {
   }
 
   async create(input: UomInput, actor: string) {
+    const id = await this.nextUomId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor);
+      const created = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, {
         status: "PUBLISHED",
       });
-      return { id: created.id, status: "PUBLISHED" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "PUBLISHED" as const, versionNo: created.versionNo };
     });
+  }
+
+  private async nextUomId() {
+    const id = await this.index.getGindexMst(UOM_INDEX_CODE);
+    await this.index.updateGindexMst(UOM_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: UomInput, actor: string) {
@@ -61,7 +75,9 @@ export class UomService {
     return this.repo.withTransaction(async (client) => {
       const existing = await this.repo.findByExternalId(client, input.externalId as string);
       if (!existing) {
-        const created = await this.repo.insert(client, input, actor);
+        const id = await this.nextUomId();
+        if (!input.code) input.code = id;
+        const created = await this.repo.insert(client, input, actor, id);
         await this.repo.snapshot(client, created.id, actor);
         await this.repo.audit(client, created.id, "SAP_UPSERT", actor, input.changeNote ?? null, {
           status: "PUBLISHED",

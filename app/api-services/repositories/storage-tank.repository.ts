@@ -136,19 +136,19 @@ export class StorageTankRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: StorageTankInput, actor: string) {
+  async insert(client: PoolClient, input: StorageTankInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.storage_tank (
-         code, name, ownership, material_id, legal_entity_id, shipping_point_id, customer_code,
+         id, code, name, ownership, material_id, legal_entity_id, shipping_point_id, customer_code,
          vendor_id, dispatcher_point_id, capacity_l, safe_fill_l, safety_stock_l, reorder_l,
          capacity_uom_id, gauge_type, gauge_device_ref, last_calibration, inspection_due, certificate,
          valid_from, valid_to, reason, change_note, external_id, status, version_no, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
-         'DRAFT', 1, $25, $25
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
+         'DRAFT', 1, $26, $26
        )
        returning id, status, version_no as "versionNo"`,
-      [...insertValues(input), actor],
+      [id, ...insertValues(input), actor],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

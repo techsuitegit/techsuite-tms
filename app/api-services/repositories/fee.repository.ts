@@ -93,16 +93,16 @@ export class FeeRepository {
     return result.rows[0];
   }
 
-  async insert(client: PoolClient, input: FeeInput, actor: string) {
+  async insert(client: PoolClient, input: FeeInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.fee (
-         code, name, fee_type, charge_type, rate, currency, valid_from, valid_to,
+         id, code, name, fee_type, charge_type, rate, currency, valid_from, valid_to,
          reason, change_note, external_id, status, version_no, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, 'DRAFT', 1, $12, $12
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, 'DRAFT', 1, $13, $13
        )
        returning id, status, version_no as "versionNo"`,
-      [...insertValues(input), actor],
+      [id, ...insertValues(input), actor],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

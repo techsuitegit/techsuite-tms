@@ -30,6 +30,7 @@ async function main() {
     "public_geo_state.sql",
     "public_geo_city.sql",
     "public_pincode.sql",
+    "public_index_generator.sql",
     "branch_shipping_point.sql",
     "branch_vendor.sql",
     "branch_terminal.sql",
@@ -46,6 +47,14 @@ async function main() {
     "branch_zone.sql",
     "branch_division.sql",
     "branch_cost_centre.sql",
+    "branch_material_index_id.sql",
+    "branch_division_index_id.sql",
+    "branch_cost_centre_index_id.sql",
+    "branch_cylinder_index_id.sql",
+    "branch_fee_index_id.sql",
+    "branch_haulier_index_id.sql",
+    "branch_pricing_index_id.sql",
+    "branch_remaining_index_id.sql",
   ];
   const pool = createAppPool();
   try {

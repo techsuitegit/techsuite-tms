@@ -2,11 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { MdmError } from "../errors/mdm-error";
 import type { AuthedRequest } from "../jwt/jwt.middleware";
-import { parseCreateBody, parseUpdateBody } from "../services/terminal-validation";
+import { isTerminalId, parseCreateBody, parseUpdateBody } from "../services/terminal-validation";
 import type { TerminalService } from "../services/terminal.service";
 import { parseCsv, readJsonBody, readRaw, sendJson, sendText } from "../../../server/http/io";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class TerminalController {
   constructor(private readonly terminalService: TerminalService) {}
@@ -71,7 +69,7 @@ export class TerminalController {
 }
 
 function requireId(id: string | undefined) {
-  if (!id || !UUID_RE.test(id)) throw new MdmError("NOT_FOUND", "Terminal was not found", 404);
+  if (!id || !isTerminalId(id)) throw new MdmError("NOT_FOUND", "Terminal was not found", 404);
   return id;
 }
 

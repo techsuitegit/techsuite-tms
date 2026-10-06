@@ -3,11 +3,15 @@ import type { MaterialInput } from "./material-types";
 import { parseStatusFilter } from "./material-validation";
 import { type MaterialRepository, type MaterialRow } from "../repositories/material.repository";
 import type { UomRepository } from "../repositories/uom.repository";
+import { indexgenerater } from "./indexgenerater";
+
+const MATERIAL_INDEX_CODE = "MAT";
 
 export class MaterialService {
   constructor(
     private readonly repo: MaterialRepository,
     private readonly uom: UomRepository,
+    private readonly index: indexgenerater,
   ) {}
 
   async list(query: URLSearchParams) {
@@ -35,11 +39,13 @@ export class MaterialService {
 
   async create(input: MaterialInput, actor: string) {
     await this.assertUoms(input);
+    const id = await this.nextMaterialId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor, "DRAFT");
+      const created = await this.repo.insert(client, input, actor, "DRAFT", id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: created.id, status: "DRAFT" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "DRAFT" as const, versionNo: created.versionNo };
     });
   }
 
@@ -96,7 +102,8 @@ export class MaterialService {
     return this.repo.withTransaction(async (client) => {
       const existing = await this.repo.findByExternalId(client, input.externalId as string);
       if (!existing) {
-        const created = await this.repo.insert(client, input, actor, "PUBLISHED");
+        const id = await this.nextMaterialId();
+        const created = await this.repo.insert(client, input, actor, "PUBLISHED", id);
         await this.repo.snapshot(client, created.id, actor);
         await this.repo.audit(client, created.id, "SAP_UPSERT", actor, input.changeNote ?? null, {
           status: "PUBLISHED",
@@ -144,6 +151,12 @@ export class MaterialService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextMaterialId() {
+    const id = await this.index.getGindexMst(MATERIAL_INDEX_CODE);
+    await this.index.updateGindexMst(MATERIAL_INDEX_CODE);
+    return id;
   }
 
   private async assertUoms(input: MaterialInput) {

@@ -2,11 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { MdmError } from "../errors/mdm-error";
 import type { AuthedRequest } from "../jwt/jwt.middleware";
-import { parseCreateBody, parseUpdateBody } from "../services/fee-validation";
+import { isFeeId, parseCreateBody, parseUpdateBody } from "../services/fee-validation";
 import type { FeeService } from "../services/fee.service";
 import { parseCsv, readJsonBody, readRaw, sendJson, sendText } from "../../../server/http/io";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class FeeController {
   constructor(private readonly feeService: FeeService) {}
@@ -71,7 +69,7 @@ export class FeeController {
 }
 
 function requireId(id: string | undefined) {
-  if (!id || !UUID_RE.test(id)) throw new MdmError("NOT_FOUND", "Fee was not found", 404);
+  if (!id || !isFeeId(id)) throw new MdmError("NOT_FOUND", "Fee was not found", 404);
   return id;
 }
 

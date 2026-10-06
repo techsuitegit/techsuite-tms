@@ -1,4 +1,6 @@
 import { MdmError } from "../errors/mdm-error";
+import { isMaterialId } from "./material-validation";
+import { isShippingPointId } from "./shipping-point-validation";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,
@@ -13,10 +15,15 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
+const CYLINDER_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+
+export function isCylinderId(value: string) {
+  return CYLINDER_ID_RE.test(value);
+}
 
 export function parseCreateBody(body: Record<string, unknown>): CylinderInput {
   rejectUnknown(body, CREATE_FIELDS);
-  return parseFields(body);
+  return parseFields(body, false);
 }
 
 export function parseUpdateBody(body: Record<string, unknown>): CylinderInput {
@@ -41,11 +48,8 @@ export function isRequalPast(due: string) {
   return due < todayIso();
 }
 
-function parseFields(body: Record<string, unknown>): CylinderInput {
-  const code = requiredString(body, "code").toUpperCase();
-  if (!CODE_RE.test(code)) {
-    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
-  }
+function parseFields(body: Record<string, unknown>, requireCode = true): CylinderInput {
+  const code = readCode(body, requireCode);
   const serial = requiredString(body, "serial");
   if (serial.length > 40) throw new MdmError("VALIDATION", "serial must be 1-40 characters", 400, "serial");
   const validFrom = requiredDate(body, "validFrom");
@@ -59,14 +63,14 @@ function parseFields(body: Record<string, unknown>): CylinderInput {
     serial,
     rfid: optionalString(body, "rfid"),
     size: requiredEnum(body, "size", CYLINDER_SIZES),
-    materialId: requiredUuid(body, "materialId"),
+    materialId: requiredMaterialId(body, "materialId"),
     tareKg: requiredPositiveNumber(body, "tareKg"),
     fillCapacity: requiredPositiveNumber(body, "fillCapacity"),
     valveType: optionalEnum(body, "valveType", VALVE_TYPES),
     requalificationDue: requiredDate(body, "requalificationDue"),
     custodyState: requiredEnum(body, "custodyState", CUSTODY_STATES),
     locationText: optionalString(body, "locationText"),
-    shippingPointId: optionalUuid(body, "shippingPointId"),
+    shippingPointId: optionalShippingPointId(body, "shippingPointId"),
     validFrom,
     validTo,
     reason: requiredEnum(body, "reason", CHANGE_REASONS),
@@ -86,6 +90,22 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
   for (const key of Object.keys(body)) {
     if (!allowed.includes(key)) throw new MdmError("VALIDATION", `Unknown field ${key}`, 400, key);
   }
+}
+
+function readCode(body: Record<string, unknown>, required: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (!required) return "";
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  const code = value.trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
+  }
+  return code;
 }
 
 function requiredString(body: Record<string, unknown>, field: string) {
@@ -113,6 +133,12 @@ function requiredUuid(body: Record<string, unknown>, field: string) {
   return value;
 }
 
+function requiredMaterialId(body: Record<string, unknown>, field: string) {
+  const value = requiredString(body, field);
+  if (!isMaterialId(value)) throw new MdmError("VALIDATION", `${field} must be a material id`, 400, field);
+  return value;
+}
+
 function requiredDate(body: Record<string, unknown>, field: string) {
   const value = requiredString(body, field);
   if (!DATE_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be YYYY-MM-DD`, 400, field);
@@ -132,6 +158,15 @@ function optionalString(body: Record<string, unknown>, field: string) {
   if (value == null || value === "") return null;
   if (typeof value !== "string") throw new MdmError("VALIDATION", `${field} must be text`, 400, field);
   return value.trim() || null;
+}
+
+function optionalShippingPointId(body: Record<string, unknown>, field: string) {
+  const value = body[field];
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !isShippingPointId(value)) {
+    throw new MdmError("VALIDATION", `${field} must be a shipping point id`, 400, field);
+  }
+  return value;
 }
 
 function optionalUuid(body: Record<string, unknown>, field: string) {

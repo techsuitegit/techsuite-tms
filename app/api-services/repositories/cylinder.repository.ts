@@ -115,18 +115,18 @@ export class CylinderRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: CylinderInput, actor: string) {
+  async insert(client: PoolClient, input: CylinderInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.cylinder (
-         code, serial, rfid, size, material_id, tare_kg, fill_capacity, valve_type,
+         id, code, serial, rfid, size, material_id, tare_kg, fill_capacity, valve_type,
          requalification_due, custody_state, location_text, shipping_point_id,
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'DRAFT',1,$17,$18,$18
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'DRAFT',1,$18,$19,$19
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

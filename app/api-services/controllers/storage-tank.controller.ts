@@ -2,11 +2,9 @@ import type { ServerResponse } from "node:http";
 
 import { MdmError } from "../errors/mdm-error";
 import type { AuthedRequest } from "../jwt/jwt.middleware";
-import { parseCreateBody, parseUpdateBody } from "../services/storage-tank-validation";
+import { isStorageTankId, parseCreateBody, parseUpdateBody } from "../services/storage-tank-validation";
 import type { StorageTankService } from "../services/storage-tank.service";
 import { readJsonBody, sendJson } from "../../../server/http/io";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class StorageTankController {
   constructor(private readonly storageTankService: StorageTankService) {}
@@ -61,6 +59,6 @@ export class StorageTankController {
 }
 
 function requireId(id: string | undefined) {
-  if (!id || !UUID_RE.test(id)) throw new MdmError("NOT_FOUND", "Storage Tank was not found", 404);
+  if (!id || !isStorageTankId(id)) throw new MdmError("NOT_FOUND", "Storage Tank was not found", 404);
   return id;
 }

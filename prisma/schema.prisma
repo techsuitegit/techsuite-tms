@@ -8,6 +8,13 @@ datasource db {
 }
 
 /// Applied manually in PostgreSQL. Do not run Prisma migrate/db push for this schema.
+enum IdxNumberingType {
+  Automatic
+
+  @@map("idx_numberingtype")
+  @@schema("public")
+}
+
 enum SapModule {
   PR
   PO
@@ -220,10 +227,80 @@ model Pincode {
   @@schema("public")
 }
 
+/// Financial year for BindexTrn. Ids come from public.fy_seq (1000, step 10). No UI.
+/// Applied via sql/public_index_generator.sql.
+model FinancePeriod {
+  id        BigInt    @id @default(dbgenerated("nextval('public.fy_seq'::regclass)"))
+  name      String    @unique @db.VarChar(250)
+  startDate DateTime? @map("startdate") @db.Timestamptz(6)
+  endDate   DateTime? @map("enddate") @db.Timestamptz(6)
+
+  bindexTrn BindexTrn[]
+
+  @@map("financeperiod")
+  @@schema("public")
+}
+
+/// Company-wide index series. lastno is an integer. The formatted number is returned as a string.
+model GindexMst {
+  code         String           @id @db.VarChar(20)
+  name         String           @unique @db.VarChar(100)
+  numberSystem IdxNumberingType @default(Automatic) @map("numbersystem")
+  description  String?          @db.VarChar(300)
+  noPrefix     String?          @map("noprefix") @db.VarChar(10)
+  noSuffix     String?          @map("nosuffix") @db.VarChar(10)
+  noLength     Int?             @map("nolength")
+  lastNo       Int?             @map("lastno")
+  padding      Boolean?
+
+  @@map("gindexmst")
+  @@schema("public")
+}
+
+/// Branch index series. Key is code + branch.
+model BindexMst {
+  code         String           @db.VarChar(20)
+  branch       String           @db.VarChar(20)
+  name         String           @unique @db.VarChar(100)
+  numberSystem IdxNumberingType @default(Automatic) @map("numbersystem")
+  description  String?          @db.VarChar(300)
+  noPrefix     String?          @map("noprefix") @db.VarChar(10)
+  noSuffix     String?          @map("nosuffix") @db.VarChar(10)
+  noLength     Int?             @map("nolength")
+  lastNo       Int?             @map("lastno")
+  padding      Boolean?
+
+  @@id([code, branch], map: "pk_bindexmst")
+  @@map("bindexmst")
+  @@schema("public")
+}
+
+/// Branch and financial-year index series. fyid is taken from branchcontrol.currentfyid, not from the caller.
+model BindexTrn {
+  code         String           @db.VarChar(20)
+  branch       String           @db.VarChar(20)
+  fyId         BigInt           @map("fyid")
+  name         String           @unique @db.VarChar(100)
+  numberSystem IdxNumberingType @default(Automatic) @map("numbersystem")
+  description  String?          @db.VarChar(300)
+  noPrefix     String?          @map("noprefix") @db.VarChar(10)
+  noSuffix     String?          @map("nosuffix") @db.VarChar(10)
+  noLength     Int?             @map("nolength")
+  lastNo       Int?             @map("lastno")
+  padding      Boolean?
+
+  financePeriod FinancePeriod @relation(fields: [fyId], references: [id])
+
+  @@id([code, branch, fyId], map: "pk_bindextrn")
+  @@map("bindextrn")
+  @@schema("public")
+}
+
 /// WBS 2.3 Division. AUTO approval. Extends the shipping-point stub. No UI.
+/// id stores the generated index number (for example DIV00001). Older rows keep their UUID as text.
 /// legal_entity_id has no FK until WBS 2.1. Applied via sql/branch_division.sql.
 model Division {
-  id                String    @id @default(uuid())
+  id                String    @id
   code              String
   name              String
   legalEntityId     String    @map("legal_entity_id")
@@ -303,8 +380,9 @@ model DivisionAudit {
 }
 
 /// WBS 2.5 Shipping Point. Table is branch.shipping_point, not public.
+/// id stores the generated index number (for example SHP00001). Older rows keep their UUID as text.
 model ShippingPoint {
-  id               String    @id @default(uuid())
+  id               String    @id
   code             String
   name             String
   divisionId       String    @map("division_id")
@@ -382,9 +460,10 @@ model ShippingPointAudit {
 }
 
 /// WBS 2.7 Vendor / Supplier (SAP sync). Table is branch.vendor, not public.
+/// id stores the generated index number (for example VND00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_vendor.sql. Do not Prisma migrate.
 model Vendor {
-  id         String    @id @default(uuid())
+  id         String    @id
   code       String
   name       String
   type       String
@@ -443,8 +522,9 @@ model VendorAudit {
 }
 
 /// WBS 2.8 Terminal. Approval route SAFETY. Applied via sql/branch_terminal.sql.
+/// id stores the generated index number (for example TRM00001). Older rows keep their UUID as text.
 model Terminal {
-  id                 String    @id @default(uuid())
+  id                 String    @id
   code               String
   name               String
   ownership          String
@@ -515,8 +595,9 @@ model TerminalAudit {
 }
 
 /// WBS 2.6 UOM. AUTO publish. Applied via sql/branch_uom.sql / prisma migrate. Do not expose a UI.
+/// id stores the generated index number (for example UOM00001). Older rows keep their UUID as text.
 model Uom {
-  id            String    @id @default(uuid())
+  id            String    @id
   code          String
   name          String
   isBase        Boolean   @default(false) @map("is_base")
@@ -581,8 +662,9 @@ model UomAudit {
 }
 
 /// WBS 2.9 Material. FINANCIAL approval. Applied via sql/branch_material.sql. Do not expose a UI.
+/// id stores the generated index number (for example MAT00001). Older rows keep their UUID as text.
 model Material {
-  id                 String    @id @default(uuid())
+  id                 String    @id
   code               String
   name               String
   industryDesc       String?   @map("industry_desc")
@@ -668,8 +750,9 @@ model MaterialAudit {
 }
 
 /// WBS 2.10 Storage Tank. SAFETY approval. legal_entity_id has no FK until WBS 2.1 exists.
+/// id stores the generated index number (for example TNK00001). Older rows keep their UUID as text.
 model StorageTank {
-  id                String    @id @default(uuid())
+  id                String    @id
   code              String
   name              String
   ownership         String
@@ -746,8 +829,9 @@ model StorageTankAudit {
 }
 
 /// WBS 2.11 Fee Catalogue. FINANCIAL approval. feeType is free text.
+/// id stores the generated index number (for example FEE00001). Older rows keep their UUID as text.
 model Fee {
-  id         String    @id @default(uuid())
+  id         String    @id
   code       String
   name       String
   feeType    String    @map("fee_type")
@@ -805,8 +889,9 @@ model FeeAudit {
 }
 
 /// WBS 2.12 Pricing Procedure. FINANCIAL approval. Rules and conditions are children.
+/// id stores the generated index number (for example PRC00001). Older rows keep their UUID as text.
 model PricingProcedure {
-  id             String    @id @default(uuid())
+  id             String    @id
   code           String
   name           String
   accessSequence String    @map("access_sequence")
@@ -832,8 +917,10 @@ model PricingProcedure {
   @@schema("branch")
 }
 
+/// id stores the generated index number (for example PRL00001). Older rows keep their UUID as text.
+/// Condition row ids stay UUIDs.
 model PricingRule {
-  id          String  @id @default(uuid())
+  id          String  @id
   procedureId String  @map("procedure_id")
   code        String
   priority    Int
@@ -892,9 +979,10 @@ model PricingProcedureAudit {
 }
 
 /// WBS 2.4 Cost Centre. FINANCIAL approval for annual budget and default GL. No UI.
+/// id stores the generated index number (for example CCT00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_cost_centre.sql.
 model CostCentre {
-  id              String    @id @default(uuid())
+  id              String    @id
   code            String
   name            String
   divisionId      String    @map("division_id")
@@ -957,10 +1045,11 @@ model CostCentreAudit {
 }
 
 /// WBS 2.13 Vehicle / Truck. SAFETY approval.
+/// id stores the generated index number (for example VEH00001). Older rows keep their UUID as text.
 /// cost_centre_id FK is added by sql/branch_cost_centre.sql when every existing id is a real cost centre.
 /// Applied via sql/branch_vehicle.sql. Do not expose a UI.
 model Vehicle {
-  id               String    @id @default(uuid())
+  id               String    @id
   code             String
   plate            String
   vin              String?
@@ -1008,8 +1097,9 @@ model Vehicle {
   @@schema("branch")
 }
 
+/// id stores the generated index number (for example CMP00001). Older rows keep their UUID as text.
 model VehicleCompartment {
-  id         String   @id @default(uuid())
+  id         String   @id
   vehicleId  String   @map("vehicle_id")
   seq        Int
   materialId String?  @map("material_id")
@@ -1054,9 +1144,10 @@ model VehicleAudit {
 }
 
 /// WBS 2.14 PTL Load Threshold. AUTO approval. One published row per vehicle class.
+/// id stores the generated index number (for example PTL00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_ptl_threshold.sql. Do not expose a UI.
 model PtlThreshold {
-  id           String    @id @default(uuid())
+  id           String    @id
   code         String
   vehicleClass String    @map("vehicle_class")
   minLoadPct   Decimal   @map("min_load_pct") @db.Decimal(5, 2)
@@ -1114,9 +1205,10 @@ model PtlThresholdAudit {
 }
 
 /// WBS 2.15 Cylinder. SAFETY approval. Not a storage tank.
+/// id stores the generated index number (for example CYL00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_cylinder.sql. Do not expose a UI.
 model Cylinder {
-  id                  String    @id @default(uuid())
+  id                  String    @id
   code                String
   serial              String
   rfid                String?
@@ -1182,9 +1274,10 @@ model CylinderAudit {
 }
 
 /// WBS 2.16 Telemetry Device. AUTO approval. Register only. No readings.
+/// id stores the generated index number (for example TLM00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_telemetry_device.sql. Do not expose a UI.
 model TelemetryDevice {
-  id             String    @id @default(uuid())
+  id             String    @id
   code           String
   vendorId       String    @map("vendor_id")
   model          String?
@@ -1248,9 +1341,10 @@ model TelemetryDeviceAudit {
 }
 
 /// WBS 2.2 Zone. AUTO approval. Geographical side only. No lat/long. No seed (WBS 2.18).
+/// id stores the generated index number (for example ZON00001). Older rows keep their UUID as text.
 /// Division.zone_id is owned by WBS 2.3. Applied via sql/branch_zone.sql. Do not expose a UI.
 model Zone {
-  id          String    @id @default(uuid())
+  id          String    @id
   code        String
   name        String
   description String?
@@ -1306,9 +1400,10 @@ model ZoneAudit {
 }
 
 /// WBS 2.17 Haulier. FINANCIAL approval. Not a Vendor. zone_ids stores Zone ids with no array FK.
+/// id stores the generated index number (for example HAU00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_haulier.sql. Do not expose a UI.
 model Haulier {
-  id                String    @id @default(uuid())
+  id                String    @id
   code              String
   name              String
   registration      String?

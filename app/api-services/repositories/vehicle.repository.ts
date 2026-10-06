@@ -150,21 +150,21 @@ export class VehicleRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: VehicleInput, actor: string) {
+  async insert(client: PoolClient, input: VehicleInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.vehicle (
-         code, plate, vin, make, model, model_year, vehicle_class,
+         id, code, plate, vin, make, model, model_year, vehicle_class,
          shipping_point_id, division_id, cost_centre_id, capacity, capacity_uom_id,
          gvw_kg, tare_kg, height_m, length_m, hazmat_class, axle_config, ptl_min_pct, gps_device_id,
          insurance_expiry, fitness_expiry, permit_expiry,
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-         $21,$22,$23,$24,$25,$26,$27,'DRAFT',1,$28,$29,$29
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+         $22,$23,$24,$25,$26,$27,$28,'DRAFT',1,$29,$30,$30
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     const row = inserted.rows[0] as { id: string; status: string; versionNo: number };
     await this.replaceCompartments(client, row.id, input.compartments);
@@ -190,10 +190,11 @@ export class VehicleRepository {
   async replaceCompartments(client: PoolClient, vehicleId: string, compartments: CompartmentInput[]) {
     await client.query(`delete from branch.vehicle_compartment where vehicle_id=$1`, [vehicleId]);
     for (const row of compartments) {
+      if (!row.id) throw new MdmError("VALIDATION", "Vehicle compartment id is required", 500);
       await client.query(
-        `insert into branch.vehicle_compartment (vehicle_id, seq, material_id, volume)
-         values ($1,$2,$3,$4)`,
-        [vehicleId, row.seq, row.materialId, row.volume],
+        `insert into branch.vehicle_compartment (id, vehicle_id, seq, material_id, volume)
+         values ($1,$2,$3,$4,$5)`,
+        [row.id, vehicleId, row.seq, row.materialId, row.volume],
       );
     }
   }

@@ -1,4 +1,5 @@
 import { MdmError } from "../errors/mdm-error";
+import { isUomId } from "./uom-validation";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,
@@ -14,10 +15,15 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
+const MATERIAL_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+
+export function isMaterialId(value: string) {
+  return MATERIAL_ID_RE.test(value);
+}
 
 export function parseCreateBody(body: Record<string, unknown>): MaterialInput {
   rejectUnknown(body, CREATE_FIELDS);
-  return parseFields(body, false);
+  return parseFields(body, false, false);
 }
 
 export function parseUpdateBody(body: Record<string, unknown>): MaterialInput {
@@ -47,14 +53,11 @@ export function parseStatusFilter(value: string | null) {
   return value;
 }
 
-function parseFields(body: Record<string, unknown>, sap: boolean): MaterialInput {
-  const code = requiredString(body, "code").toUpperCase();
-  if (!CODE_RE.test(code)) {
-    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
-  }
+function parseFields(body: Record<string, unknown>, sap: boolean, requireCode = true): MaterialInput {
+  const code = readCode(body, requireCode);
   const name = requiredString(body, "name");
-  const baseUomId = requiredUuid(body, "baseUomId");
-  const altUomId = optionalUuid(body, "altUomId");
+  const baseUomId = requiredUomId(body, "baseUomId");
+  const altUomId = optionalUomId(body, "altUomId");
   const altFactor = optionalNumber(body, "altFactor");
   if (altUomId && altFactor == null) {
     throw new MdmError("VALIDATION", "altFactor is required when altUomId is set", 400, "altFactor");
@@ -94,10 +97,10 @@ function parseFields(body: Record<string, unknown>, sap: boolean): MaterialInput
     altUomId,
     altFactor,
     grossWeight: optionalNumber(body, "grossWeight"),
-    weightUomId: optionalUuid(body, "weightUomId"),
+    weightUomId: optionalUomId(body, "weightUomId"),
     netWeight: optionalNumber(body, "netWeight"),
     volume: optionalNumber(body, "volume"),
-    volumeUomId: optionalUuid(body, "volumeUomId"),
+    volumeUomId: optionalUomId(body, "volumeUomId"),
     dimensions: optionalString(body, "dimensions"),
     ean: optionalString(body, "ean"),
     eanCategory: optionalString(body, "eanCategory"),
@@ -115,6 +118,22 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
       throw new MdmError("VALIDATION", `Unknown field ${key}`, 400, key);
     }
   }
+}
+
+function readCode(body: Record<string, unknown>, required: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (!required) return "";
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  const code = value.trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
+  }
+  return code;
 }
 
 function requiredString(body: Record<string, unknown>, field: string) {
@@ -140,6 +159,21 @@ function optionalEnum<T extends string>(body: Record<string, unknown>, field: st
     throw new MdmError("VALIDATION", `${field} is invalid`, 400, field);
   }
   return value as T;
+}
+
+function requiredUomId(body: Record<string, unknown>, field: string) {
+  const value = requiredString(body, field);
+  if (!isUomId(value)) throw new MdmError("VALIDATION", `${field} must be a uom id`, 400, field);
+  return value;
+}
+
+function optionalUomId(body: Record<string, unknown>, field: string) {
+  const value = body[field];
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !isUomId(value)) {
+    throw new MdmError("VALIDATION", `${field} must be a uom id`, 400, field);
+  }
+  return value;
 }
 
 function requiredUuid(body: Record<string, unknown>, field: string) {

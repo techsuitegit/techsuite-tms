@@ -137,19 +137,19 @@ export class DivisionRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async insert(client: PoolClient, input: DivisionInput, actor: string) {
+  async insert(client: PoolClient, input: DivisionInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.division (
-         code, name, legal_entity_id, zone_id, search_term_1, search_term_2, street, district,
+         id, code, name, legal_entity_id, zone_id, search_term_1, search_term_2, street, district,
          postal_code, city, country, region, time_zone, po_box, po_box_postal_code, company_postal_code,
          language, telephone, extension, mobile, fax, email, standard_method, comments,
          valid_from, valid_to, reason, change_note, external_id, status, version_no, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
-         'DRAFT', 1, $30, $30
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
+         'DRAFT', 1, $31, $31
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

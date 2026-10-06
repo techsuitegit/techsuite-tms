@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import { mapDbError, type CylinderRepository, type CylinderRow } from "../repositories/cylinder.repository";
 import type { CylinderInput } from "./cylinder-types";
 import { isRequalPast, parseCreateBody, parseStatusFilter } from "./cylinder-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const CYLINDER_INDEX_CODE = "CYL";
 
 export class CylinderService {
-  constructor(private readonly repo: CylinderRepository) {}
+  constructor(
+    private readonly repo: CylinderRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     parseStatusFilter(query.get("status"));
@@ -28,12 +34,14 @@ export class CylinderService {
 
   async create(input: CylinderInput, actor: string) {
     await this.assertParents(input);
+    const id = await this.nextCylinderId();
+    if (!input.code) input.code = id;
     const warnings = requalWarnings(input.requalificationDue);
     const created = await this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
     return { ...created, warnings };
   }
@@ -162,6 +170,12 @@ export class CylinderService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextCylinderId() {
+    const id = await this.index.getGindexMst(CYLINDER_INDEX_CODE);
+    await this.index.updateGindexMst(CYLINDER_INDEX_CODE);
+    return id;
   }
 
   private async assertParents(input: CylinderInput) {

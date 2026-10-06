@@ -3,11 +3,15 @@ import type { GeoRepository } from "../repositories/geo.repository";
 import type { TerminalInput } from "./terminal-types";
 import { parseCreateBody, parseStatusFilter } from "./terminal-validation";
 import { mapDbError, type TerminalRepository, type TerminalRow } from "../repositories/terminal.repository";
+import { indexgenerater } from "./indexgenerater";
+
+const TERMINAL_INDEX_CODE = "TRM";
 
 export class TerminalService {
   constructor(
     private readonly repo: TerminalRepository,
     private readonly geo: GeoRepository,
+    private readonly index: indexgenerater,
   ) {}
 
   async list(query: URLSearchParams) {
@@ -36,13 +40,21 @@ export class TerminalService {
 
   async create(input: TerminalInput, actor: string) {
     await this.assertParents(input);
+    const id = await this.nextTerminalId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       if (input.isParent) await this.repo.clearOtherParents(client, input.shippingPointId, row.id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
+  }
+
+  private async nextTerminalId() {
+    const id = await this.index.getGindexMst(TERMINAL_INDEX_CODE);
+    await this.index.updateGindexMst(TERMINAL_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: TerminalInput, actor: string) {

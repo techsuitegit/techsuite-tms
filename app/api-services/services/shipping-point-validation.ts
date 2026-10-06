@@ -1,4 +1,5 @@
 import { MdmError } from "../errors/mdm-error";
+import { isDivisionId } from "./division-validation";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,
@@ -8,9 +9,13 @@ import {
   type ShippingPointInput,
 } from "./shipping-point-types";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SHIPPING_POINT_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
 const FORBIDDEN = [/\bdepot\b/i, /dispatch centre/i, /dispatch center/i];
+
+export function isShippingPointId(value: string) {
+  return SHIPPING_POINT_ID_RE.test(value);
+}
 
 export function assertNoForbiddenLabels(value: string, field: string) {
   for (const pattern of FORBIDDEN) {
@@ -44,7 +49,7 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
 }
 
 function parseFields(body: Record<string, unknown>, partial: boolean): ShippingPointInput {
-  const code = requiredString(body, "code", partial).toUpperCase();
+  const code = readShippingCode(body, partial);
   const name = requiredString(body, "name", partial);
   const divisionId = requiredString(body, "divisionId", partial);
   const type = requiredEnum(body, "type", SHIPPING_POINT_TYPES, partial);
@@ -54,8 +59,8 @@ function parseFields(body: Record<string, unknown>, partial: boolean): ShippingP
   const validFrom = requiredDate(body, "validFrom", partial);
   const reason = requiredEnum(body, "reason", CHANGE_REASONS, partial);
 
-  if (!UUID_RE.test(divisionId)) {
-    throw new MdmError("VALIDATION", "divisionId must be a UUID", 400, "divisionId");
+  if (!isDivisionId(divisionId)) {
+    throw new MdmError("VALIDATION", "divisionId must be a division id", 400, "divisionId");
   }
   if (latitude < -90 || latitude > 90) {
     throw new MdmError("VALIDATION", "latitude must be between -90 and 90", 400, "latitude");
@@ -64,9 +69,10 @@ function parseFields(body: Record<string, unknown>, partial: boolean): ShippingP
     throw new MdmError("VALIDATION", "longitude must be between -180 and 180", 400, "longitude");
   }
 
-  for (const [field, value] of Object.entries({ code, name, address })) {
+  for (const [field, value] of Object.entries({ name, address })) {
     assertNoForbiddenLabels(value, field);
   }
+  if (code) assertNoForbiddenLabels(code, "code");
 
   const validTo = optionalDate(body, "validTo");
   if (validTo && validTo < validFrom) {
@@ -116,6 +122,18 @@ export function parseStatusFilter(value: string | null) {
     throw new MdmError("VALIDATION", "Invalid status filter", 400, "status");
   }
   return value;
+}
+
+function readShippingCode(body: Record<string, unknown>, partial: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (partial) throw new MdmError("VALIDATION", "code is required", 400, "code");
+    return "";
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  return value.trim().toUpperCase();
 }
 
 function requiredString(body: Record<string, unknown>, field: string, partial: boolean) {

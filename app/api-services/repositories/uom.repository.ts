@@ -112,17 +112,17 @@ export class UomRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: UomInput, actor: string) {
+  async insert(client: PoolClient, input: UomInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.uom (
-         code, name, is_base, factor_to_base, decimal_places, rounding, dimension,
+         id, code, name, is_base, factor_to_base, decimal_places, rounding, dimension,
          valid_from, valid_to, reason, change_note,
          status, version_no, external_id, created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, 'PUBLISHED', 1, $12, $13, $13
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, 'PUBLISHED', 1, $13, $14, $14
        )
        returning id, status, version_no as "versionNo", external_id as "externalId"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number; externalId: string | null };
   }

@@ -1,4 +1,5 @@
 import { MdmError } from "../errors/mdm-error";
+import { isZoneId } from "./zone-validation";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,
@@ -10,6 +11,11 @@ import {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9][A-Z0-9._\-/]{0,39}$/;
+const DIVISION_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+
+export function isDivisionId(value: string) {
+  return DIVISION_ID_RE.test(value);
+}
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[0-9+().\-\s]{6,20}$/;
@@ -26,7 +32,7 @@ function isIanaTimeZone(value: string) {
 
 export function parseCreateBody(body: Record<string, unknown>): DivisionInput {
   rejectUnknown(body, CREATE_FIELDS);
-  return parseFields(body);
+  return parseFields(body, false);
 }
 
 export function parseUpdateBody(body: Record<string, unknown>): DivisionInput {
@@ -47,11 +53,8 @@ export function parseStatusFilter(value: string | null) {
   return value;
 }
 
-function parseFields(body: Record<string, unknown>): DivisionInput {
-  const code = requiredString(body, "code").toUpperCase();
-  if (!CODE_RE.test(code)) {
-    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
-  }
+function parseFields(body: Record<string, unknown>, requireCode = true): DivisionInput {
+  const code = readCode(body, requireCode);
   const validFrom = requiredDate(body, "validFrom");
   const validTo = optionalDate(body, "validTo");
   if (validTo && validTo < validFrom) {
@@ -77,7 +80,7 @@ function parseFields(body: Record<string, unknown>): DivisionInput {
     code,
     name: requiredString(body, "name"),
     legalEntityId: requiredUuid(body, "legalEntityId"),
-    zoneId: requiredUuid(body, "zoneId"),
+    zoneId: requiredZoneId(body, "zoneId"),
     searchTerm1: optionalString(body, "searchTerm1"),
     searchTerm2: optionalString(body, "searchTerm2"),
     street: optionalString(body, "street"),
@@ -112,10 +115,32 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
   }
 }
 
+function readCode(body: Record<string, unknown>, required: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (!required) return "";
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  const code = value.trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    throw new MdmError("VALIDATION", "code must be 1-40 letters, digits, or . _ - /", 400, "code");
+  }
+  return code;
+}
+
 function requiredString(body: Record<string, unknown>, field: string) {
   const value = body[field];
   if (typeof value !== "string" || !value.trim()) throw new MdmError("VALIDATION", `${field} is required`, 400, field);
   return value.trim();
+}
+
+function requiredZoneId(body: Record<string, unknown>, field: string) {
+  const value = requiredString(body, field);
+  if (!isZoneId(value)) throw new MdmError("VALIDATION", `${field} must be a zone id`, 400, field);
+  return value;
 }
 
 function requiredUuid(body: Record<string, unknown>, field: string) {

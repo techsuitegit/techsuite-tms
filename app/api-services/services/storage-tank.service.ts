@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import type { StorageTankInput } from "./storage-tank-types";
 import { parseStatusFilter } from "./storage-tank-validation";
 import { type StorageTankRepository, type StorageTankRow } from "../repositories/storage-tank.repository";
+import { indexgenerater } from "./indexgenerater";
+
+const STORAGE_TANK_INDEX_CODE = "TNK";
 
 export class StorageTankService {
-  constructor(private readonly repo: StorageTankRepository) {}
+  constructor(
+    private readonly repo: StorageTankRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -27,12 +33,20 @@ export class StorageTankService {
 
   async create(input: StorageTankInput, actor: string) {
     await this.assertParents(input);
+    const id = await this.nextStorageTankId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor);
+      const created = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: created.id, status: "DRAFT" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "DRAFT" as const, versionNo: created.versionNo };
     });
+  }
+
+  private async nextStorageTankId() {
+    const id = await this.index.getGindexMst(STORAGE_TANK_INDEX_CODE);
+    await this.index.updateGindexMst(STORAGE_TANK_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: StorageTankInput, actor: string) {

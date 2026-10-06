@@ -1,4 +1,6 @@
 import { MdmError } from "../errors/mdm-error";
+import { isShippingPointId } from "./shipping-point-validation";
+import { isVendorId } from "./vendor-validation";
 import {
   CHANGE_REASONS,
   CREATE_FIELDS,
@@ -9,11 +11,16 @@ import {
 } from "./terminal-types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TERMINAL_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isTerminalId(value: string) {
+  return TERMINAL_ID_RE.test(value);
+}
 
 export function parseCreateBody(body: Record<string, unknown>): TerminalInput {
   rejectUnknown(body, CREATE_FIELDS);
-  return parseFields(body);
+  return parseFields(body, false);
 }
 
 export function parseUpdateBody(body: Record<string, unknown>): TerminalInput {
@@ -42,11 +49,11 @@ function rejectUnknown(body: Record<string, unknown>, allowed: readonly string[]
   }
 }
 
-function parseFields(body: Record<string, unknown>): TerminalInput {
-  const code = requiredString(body, "code").toUpperCase();
+function parseFields(body: Record<string, unknown>, requireCode = true): TerminalInput {
+  const code = readPlainCode(body, requireCode);
   const name = requiredString(body, "name");
   const ownership = requiredEnum(body, "ownership", TERMINAL_OWNERSHIPS);
-  const shippingPointId = requiredUuid(body, "shippingPointId");
+  const shippingPointId = requiredShippingPointId(body, "shippingPointId");
   const address = requiredString(body, "address");
   const countryId = requiredString(body, "countryId").toUpperCase();
   const stateCode = requiredString(body, "stateCode");
@@ -54,7 +61,7 @@ function parseFields(body: Record<string, unknown>): TerminalInput {
   const pincode = requiredString(body, "pincode");
   const validFrom = requiredDate(body, "validFrom");
   const reason = requiredEnum(body, "reason", CHANGE_REASONS);
-  const vendorId = optionalUuid(body, "vendorId");
+  const vendorId = optionalVendorId(body, "vendorId");
   const latitude = optionalNumber(body, "latitude");
   const longitude = optionalNumber(body, "longitude");
   const validTo = optionalDate(body, "validTo");
@@ -104,6 +111,18 @@ function parseFields(body: Record<string, unknown>): TerminalInput {
   };
 }
 
+function readPlainCode(body: Record<string, unknown>, required: boolean) {
+  const value = body.code;
+  if (value == null || value === "") {
+    if (!required) return "";
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new MdmError("VALIDATION", "code is required", 400, "code");
+  }
+  return value.trim().toUpperCase();
+}
+
 function requiredString(body: Record<string, unknown>, field: string) {
   const value = body[field];
   if (typeof value !== "string" || !value.trim()) {
@@ -124,6 +143,21 @@ function requiredDate(body: Record<string, unknown>, field: string) {
   const value = requiredString(body, field);
   if (!DATE_RE.test(value)) {
     throw new MdmError("VALIDATION", `${field} must be YYYY-MM-DD`, 400, field);
+  }
+  return value;
+}
+
+function requiredShippingPointId(body: Record<string, unknown>, field: string) {
+  const value = requiredString(body, field);
+  if (!isShippingPointId(value)) throw new MdmError("VALIDATION", `${field} must be a shipping point id`, 400, field);
+  return value;
+}
+
+function optionalVendorId(body: Record<string, unknown>, field: string) {
+  const value = body[field];
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !isVendorId(value)) {
+    throw new MdmError("VALIDATION", `${field} must be a vendor id`, 400, field);
   }
   return value;
 }

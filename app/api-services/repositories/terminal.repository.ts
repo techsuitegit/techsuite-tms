@@ -121,20 +121,20 @@ export class TerminalRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: TerminalInput, actor: string) {
+  async insert(client: PoolClient, input: TerminalInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.terminal (
-         code, name, ownership, shipping_point_id, vendor_id, is_parent, address,
+         id, code, name, ownership, shipping_point_id, vendor_id, is_parent, address,
          country_id, state_code, city_code, pincode,
          latitude, longitude, products_available, rack_price_ref, freight_to_sp, hazmat_class,
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-         'DRAFT', 1, $22, $23, $23
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+         'DRAFT', 1, $23, $24, $24
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

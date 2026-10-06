@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import { mapDbError, type ZoneRepository, type ZoneRow } from "../repositories/zone.repository";
 import type { ZoneInput } from "./zone-types";
 import { parseCreateBody, parseStatusFilter } from "./zone-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const ZONE_INDEX_CODE = "ZON";
 
 export class ZoneService {
-  constructor(private readonly repo: ZoneRepository) {}
+  constructor(
+    private readonly repo: ZoneRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -26,12 +32,20 @@ export class ZoneService {
   }
 
   async create(input: ZoneInput, actor: string) {
+    const id = await this.nextZoneId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor);
+      const created = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: created.id, status: "DRAFT" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "DRAFT" as const, versionNo: created.versionNo };
     });
+  }
+
+  private async nextZoneId() {
+    const id = await this.index.getGindexMst(ZONE_INDEX_CODE);
+    await this.index.updateGindexMst(ZONE_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: ZoneInput, actor: string) {

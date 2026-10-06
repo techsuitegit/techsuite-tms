@@ -1,13 +1,18 @@
 import { MdmError } from "../errors/mdm-error";
 import type { PtlThresholdRepository } from "../repositories/ptl-threshold.repository";
 import { mapDbError, type VehicleRepository, type VehicleRow } from "../repositories/vehicle.repository";
-import type { VehicleInput } from "./vehicle-types";
+import type { CompartmentInput, VehicleInput } from "./vehicle-types";
 import { parseCreateBody, parseStatusFilter } from "./vehicle-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const VEHICLE_INDEX_CODE = "VEH";
+const COMPARTMENT_INDEX_CODE = "CMP";
 
 export class VehicleService {
   constructor(
     private readonly repo: VehicleRepository,
     private readonly ptl: PtlThresholdRepository,
+    private readonly index: indexgenerater,
   ) {}
 
   async list(query: URLSearchParams) {
@@ -33,12 +38,15 @@ export class VehicleService {
   async create(input: VehicleInput, actor: string) {
     await this.applyPtlDefault(input);
     await this.assertParents(input);
+    const id = await this.nextIndexId(VEHICLE_INDEX_CODE);
+    if (!input.code) input.code = id;
+    await this.assignCompartmentIds(input.compartments);
     const warnings = capacityWarnings(input);
     const created = await this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
     return { ...created, warnings };
   }
@@ -55,6 +63,7 @@ export class VehicleService {
       if (current.version_no !== input.versionNo) {
         throw new MdmError("STALE_VERSION", "record changed by another user", 409);
       }
+      await this.assignCompartmentIds(input.compartments);
       const nextStatus = current.status === "PUBLISHED" || current.status === "REJECTED" ? "DRAFT" : current.status;
       await this.repo.update(client, id, input, actor, nextStatus);
       const row = await this.repo.lock(client, id);
@@ -165,6 +174,18 @@ export class VehicleService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextIndexId(code: string) {
+    const id = await this.index.getGindexMst(code);
+    await this.index.updateGindexMst(code);
+    return id;
+  }
+
+  private async assignCompartmentIds(rows: CompartmentInput[]) {
+    for (const row of rows) {
+      row.id = await this.nextIndexId(COMPARTMENT_INDEX_CODE);
+    }
   }
 
   private async applyPtlDefault(input: VehicleInput) {

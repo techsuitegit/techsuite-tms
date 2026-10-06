@@ -6,9 +6,15 @@ import {
   type ShippingPointRepository,
   type ShippingPointRow,
 } from "../repositories/shipping-point.repository";
+import { indexgenerater } from "./indexgenerater";
+
+const SHIPPING_POINT_INDEX_CODE = "SHP";
 
 export class ShippingPointService {
-  constructor(private readonly repo: ShippingPointRepository) {}
+  constructor(
+    private readonly repo: ShippingPointRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -35,12 +41,20 @@ export class ShippingPointService {
 
   async create(input: ShippingPointInput, actor: string) {
     await this.assertPublishedDivision(input.divisionId);
+    const id = await this.nextShippingPointId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
+  }
+
+  private async nextShippingPointId() {
+    const id = await this.index.getGindexMst(SHIPPING_POINT_INDEX_CODE);
+    await this.index.updateGindexMst(SHIPPING_POINT_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: ShippingPointInput, actor: string) {

@@ -2,9 +2,15 @@ import { MdmError } from "../errors/mdm-error";
 import { mapDbError, type HaulierRepository, type HaulierRow } from "../repositories/haulier.repository";
 import type { HaulierInput } from "./haulier-types";
 import { isExpiring, parseCreateBody, parseStatusFilter } from "./haulier-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const HAULIER_INDEX_CODE = "HAU";
 
 export class HaulierService {
-  constructor(private readonly repo: HaulierRepository) {}
+  constructor(
+    private readonly repo: HaulierRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     parseStatusFilter(query.get("status"));
@@ -27,11 +33,13 @@ export class HaulierService {
   }
 
   async create(input: HaulierInput, actor: string) {
+    const id = await this.nextHaulierId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
   }
 
@@ -139,6 +147,12 @@ export class HaulierService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextHaulierId() {
+    const id = await this.index.getGindexMst(HAULIER_INDEX_CODE);
+    await this.index.updateGindexMst(HAULIER_INDEX_CODE);
+    return id;
   }
 }
 

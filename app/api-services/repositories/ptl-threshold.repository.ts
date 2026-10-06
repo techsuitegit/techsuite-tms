@@ -93,17 +93,17 @@ export class PtlThresholdRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: PtlThresholdInput, actor: string) {
+  async insert(client: PoolClient, input: PtlThresholdInput, actor: string, id: string) {
     const inserted = await client.query(
       `insert into branch.ptl_threshold (
-         code, vehicle_class, min_load_pct, below_action, urgent_exempt, override_role,
+         id, code, vehicle_class, min_load_pct, below_action, urgent_exempt, override_role,
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'DRAFT',1,$11,$12,$12
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'DRAFT',1,$12,$13,$13
        )
        returning id, status, version_no as "versionNo"`,
-      insertValues(input, actor),
+      [id, ...insertValues(input, actor)],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number };
   }

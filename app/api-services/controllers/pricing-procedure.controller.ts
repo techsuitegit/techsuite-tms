@@ -2,11 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { MdmError } from "../errors/mdm-error";
 import type { AuthedRequest } from "../jwt/jwt.middleware";
-import { parseCreateBody, parseEvaluateBody, parseUpdateBody } from "../services/pricing-procedure-validation";
+import { isPricingProcedureId, parseCreateBody, parseEvaluateBody, parseUpdateBody } from "../services/pricing-procedure-validation";
 import type { PricingProcedureService } from "../services/pricing-procedure.service";
 import { parseCsv, readJsonBody, readRaw, sendJson, sendText } from "../../../server/http/io";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PricingProcedureController {
   constructor(private readonly pricingProcedureService: PricingProcedureService) {}
@@ -76,7 +74,7 @@ export class PricingProcedureController {
 }
 
 function requireId(id: string | undefined) {
-  if (!id || !UUID_RE.test(id)) throw new MdmError("NOT_FOUND", "Pricing Procedure was not found", 404);
+  if (!id || !isPricingProcedureId(id)) throw new MdmError("NOT_FOUND", "Pricing Procedure was not found", 404);
   return id;
 }
 

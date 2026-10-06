@@ -5,11 +5,18 @@ import {
   type PricingProcedureRow,
   type StoredRule,
 } from "../repositories/pricing-procedure.repository";
-import type { EvaluateFacts, PricingProcedureInput } from "./pricing-procedure-types";
+import type { EvaluateFacts, PricingProcedureInput, PricingRuleInput } from "./pricing-procedure-types";
 import { materialIdsIn, parseCreateBody, parseStatusFilter } from "./pricing-procedure-validation";
+import { indexgenerater } from "./indexgenerater";
+
+const PROCEDURE_INDEX_CODE = "PRC";
+const RULE_INDEX_CODE = "PRL";
 
 export class PricingProcedureService {
-  constructor(private readonly repo: PricingProcedureRepository) {}
+  constructor(
+    private readonly repo: PricingProcedureRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     const page = Math.max(1, Number(query.get("page") ?? 1) || 1);
@@ -32,11 +39,14 @@ export class PricingProcedureService {
 
   async create(input: PricingProcedureInput, actor: string) {
     await this.assertMaterials(input);
+    const id = await this.nextIndexId(PROCEDURE_INDEX_CODE);
+    if (!input.code) input.code = id;
+    await this.assignRuleIds(input.rules);
     return this.repo.withTransaction(async (client) => {
-      const created = await this.repo.insert(client, input, actor);
+      const created = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, created.id, actor);
       await this.repo.audit(client, created.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: created.id, status: "DRAFT" as const, versionNo: created.versionNo };
+      return { id: created.id, code: input.code, status: "DRAFT" as const, versionNo: created.versionNo };
     });
   }
 
@@ -50,6 +60,7 @@ export class PricingProcedureService {
       if (current.version_no !== input.versionNo) {
         throw new MdmError("STALE_VERSION", "record changed by another user", 409);
       }
+      await this.assignRuleIds(input.rules);
       const nextStatus = current.status === "PUBLISHED" || current.status === "REJECTED" ? "DRAFT" : current.status;
       await this.repo.update(client, id, input, actor, nextStatus);
       const updated = await this.repo.lock(client, id);
@@ -151,6 +162,20 @@ export class PricingProcedureService {
       await this.repo.audit(client, id, result.action, actor, note, { status: result.status });
       return { status: result.status };
     });
+  }
+
+  private async nextIndexId(code: string) {
+    const id = await this.index.getGindexMst(code);
+    await this.index.updateGindexMst(code);
+    return id;
+  }
+
+  private async assignRuleIds(rules: PricingRuleInput[]) {
+    for (const rule of rules) {
+      const id = await this.nextIndexId(RULE_INDEX_CODE);
+      rule.id = id;
+      if (!rule.code) rule.code = id;
+    }
   }
 
   private async assertMaterials(input: PricingProcedureInput) {

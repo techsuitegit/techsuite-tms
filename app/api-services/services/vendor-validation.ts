@@ -8,6 +8,11 @@ import {
 } from "./vendor-types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const VENDOR_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+
+export function isVendorId(value: string) {
+  return VENDOR_ID_RE.test(value);
+}
 
 export function parseSapUpsertBody(body: Record<string, unknown>): VendorInput {
   rejectUnknown(body, SAP_UPSERT_FIELDS);

@@ -6,11 +6,16 @@ import {
 } from "../repositories/telemetry-device.repository";
 import type { TelemetryDeviceInput } from "./telemetry-device-types";
 import { parseCreateBody, parseStatusFilter } from "./telemetry-device-validation";
+import { indexgenerater } from "./indexgenerater";
 
 const VENDOR_TYPES = new Set(["DEVICE", "SUPPLIER"]);
+const TELEMETRY_INDEX_CODE = "TLM";
 
 export class TelemetryDeviceService {
-  constructor(private readonly repo: TelemetryDeviceRepository) {}
+  constructor(
+    private readonly repo: TelemetryDeviceRepository,
+    private readonly index: indexgenerater,
+  ) {}
 
   async list(query: URLSearchParams) {
     parseStatusFilter(query.get("status"));
@@ -34,12 +39,20 @@ export class TelemetryDeviceService {
 
   async create(input: TelemetryDeviceInput, actor: string) {
     await this.assertParents(input, null);
+    const id = await this.nextTelemetryId();
+    if (!input.code) input.code = id;
     return this.repo.withTransaction(async (client) => {
-      const row = await this.repo.insert(client, input, actor);
+      const row = await this.repo.insert(client, input, actor, id);
       await this.repo.snapshot(client, row.id, actor);
       await this.repo.audit(client, row.id, "CREATE", actor, input.changeNote ?? null, { status: "DRAFT" });
-      return { id: row.id, status: "DRAFT" as const, versionNo: row.versionNo };
+      return { id: row.id, code: input.code, status: "DRAFT" as const, versionNo: row.versionNo };
     });
+  }
+
+  private async nextTelemetryId() {
+    const id = await this.index.getGindexMst(TELEMETRY_INDEX_CODE);
+    await this.index.updateGindexMst(TELEMETRY_INDEX_CODE);
+    return id;
   }
 
   async update(id: string, input: TelemetryDeviceInput, actor: string) {

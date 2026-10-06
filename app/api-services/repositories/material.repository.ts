@@ -147,10 +147,10 @@ export class MaterialRepository {
     return result.rows[0] ?? null;
   }
 
-  async insert(client: PoolClient, input: MaterialInput, actor: string, status: "DRAFT" | "PUBLISHED") {
+  async insert(client: PoolClient, input: MaterialInput, actor: string, status: "DRAFT" | "PUBLISHED", id: string) {
     const inserted = await client.query(
       `insert into branch.material (
-         code, name, industry_desc, basic_material, material_group, item_category_group,
+         id, code, name, industry_desc, basic_material, material_group, item_category_group,
          auth_group, cross_plant, long_text, dg_profile, dg_pack_status, packaging_code,
          env_relevant, in_bulk_liquid, highly_viscous, un_number,
          base_uom_id, alt_uom_id, alt_factor, gross_weight, weight_uom_id,
@@ -158,11 +158,11 @@ export class MaterialRepository {
          valid_from, valid_to, reason, change_note, status, version_no, external_id,
          created_by, updated_by
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-         $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,1,$33,$34,$34
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+         $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,1,$34,$35,$35
        )
        returning id, status, version_no as "versionNo", external_id as "externalId"`,
-      [...insertValues(input), status, input.externalId ?? null, actor],
+      [id, ...insertValues(input), status, input.externalId ?? null, actor],
     );
     return inserted.rows[0] as { id: string; status: string; versionNo: number; externalId: string | null };
   }
