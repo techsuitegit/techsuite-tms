@@ -116,7 +116,7 @@ export class TelemetryDeviceRepository {
        where deleted_at is null
          and storage_tank_id = $1
          and pairing_state like 'PAIRED%'
-         and ($2::uuid is null or id <> $2)
+         and ($2::text is null or id <> $2)
        limit 1`,
       [storageTankId, exceptId],
     );

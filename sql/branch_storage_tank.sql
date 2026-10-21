@@ -1,5 +1,5 @@
 -- WBS 2.10 Storage Tank — apply against POSTGRES_DB (txpoprdb) after material, shipping point, vendor, uom.
--- Schema "branch". SAFETY approval. legal_entity_id is a UUID with no FK until WBS 2.1 exists.
+-- Schema "branch". SAFETY approval. legal_entity_id is text with no FK until WBS 2.1 exists (converted by branch_no_uuid_remaining.sql).
 
 create schema if not exists branch;
 

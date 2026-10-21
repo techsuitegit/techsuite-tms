@@ -298,7 +298,7 @@ model BindexTrn {
 
 /// WBS 2.3 Division. AUTO approval. Extends the shipping-point stub. No UI.
 /// id stores the generated index number (for example DIV00001). Older rows keep their UUID as text.
-/// legal_entity_id has no FK until WBS 2.1. Applied via sql/branch_division.sql.
+/// legal_entity_id is text with no FK until WBS 2.1. Applied via sql/branch_division.sql.
 model Division {
   id                String    @id
   code              String
@@ -350,7 +350,7 @@ model Division {
 }
 
 model DivisionVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   divisionId String   @map("division_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -365,7 +365,7 @@ model DivisionVersion {
 }
 
 model DivisionAudit {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   divisionId String   @map("division_id")
   action     String
   actor      String?
@@ -430,7 +430,7 @@ model ShippingPoint {
 }
 
 model ShippingPointVersion {
-  id              String   @id @default(uuid())
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   shippingPointId String   @map("shipping_point_id")
   versionNo       Int      @map("version_no")
   snapshot        Json
@@ -445,7 +445,7 @@ model ShippingPointVersion {
 }
 
 model ShippingPointAudit {
-  id              String   @id @default(uuid())
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   shippingPointId String   @map("shipping_point_id")
   action          String
   actor           String?
@@ -492,7 +492,7 @@ model Vendor {
 }
 
 model VendorVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   vendorId   String   @map("vendor_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -507,7 +507,7 @@ model VendorVersion {
 }
 
 model VendorAudit {
-  id        String   @id @default(uuid())
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   vendorId  String   @map("vendor_id")
   action    String
   actor     String?
@@ -565,7 +565,7 @@ model Terminal {
 }
 
 model TerminalVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   terminalId String   @map("terminal_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -580,7 +580,7 @@ model TerminalVersion {
 }
 
 model TerminalAudit {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   terminalId String   @map("terminal_id")
   action     String
   actor      String?
@@ -632,7 +632,7 @@ model Uom {
 }
 
 model UomVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   uomId      String   @map("uom_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -647,7 +647,7 @@ model UomVersion {
 }
 
 model UomAudit {
-  id        String   @id @default(uuid())
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   uomId     String   @map("uom_id")
   action    String
   actor     String?
@@ -720,7 +720,7 @@ model Material {
 }
 
 model MaterialVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   materialId String   @map("material_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -735,7 +735,7 @@ model MaterialVersion {
 }
 
 model MaterialAudit {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   materialId String   @map("material_id")
   action     String
   actor      String?
@@ -749,7 +749,7 @@ model MaterialAudit {
   @@schema("branch")
 }
 
-/// WBS 2.10 Storage Tank. SAFETY approval. legal_entity_id has no FK until WBS 2.1 exists.
+/// WBS 2.10 Storage Tank. SAFETY approval. legal_entity_id is text with no FK until WBS 2.1 exists.
 /// id stores the generated index number (for example TNK00001). Older rows keep their UUID as text.
 model StorageTank {
   id                String    @id
@@ -799,7 +799,7 @@ model StorageTank {
 }
 
 model StorageTankVersion {
-  id            String   @id @default(uuid())
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   storageTankId String   @map("storage_tank_id")
   versionNo     Int      @map("version_no")
   snapshot      Json
@@ -814,7 +814,7 @@ model StorageTankVersion {
 }
 
 model StorageTankAudit {
-  id            String   @id @default(uuid())
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   storageTankId String   @map("storage_tank_id")
   action        String
   actor         String?
@@ -859,7 +859,7 @@ model Fee {
 }
 
 model FeeVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   feeId      String   @map("fee_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -874,7 +874,7 @@ model FeeVersion {
 }
 
 model FeeAudit {
-  id        String   @id @default(uuid())
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   feeId     String   @map("fee_id")
   action    String
   actor     String?
@@ -936,7 +936,7 @@ model PricingRule {
 }
 
 model PricingRuleCondition {
-  id       String  @id @default(uuid())
+  id       String  @id @default(dbgenerated("(gen_random_uuid())::text"))
   ruleId   String  @map("rule_id")
   variable String
   operator String
@@ -949,7 +949,7 @@ model PricingRuleCondition {
 }
 
 model PricingProcedureVersion {
-  id          String   @id @default(uuid())
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   procedureId String   @map("procedure_id")
   versionNo   Int      @map("version_no")
   snapshot    Json
@@ -964,7 +964,7 @@ model PricingProcedureVersion {
 }
 
 model PricingProcedureAudit {
-  id          String   @id @default(uuid())
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   procedureId String   @map("procedure_id")
   action      String
   actor       String?
@@ -1015,7 +1015,7 @@ model CostCentre {
 }
 
 model CostCentreVersion {
-  id           String   @id @default(uuid())
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   costCentreId String   @map("cost_centre_id")
   versionNo    Int      @map("version_no")
   snapshot     Json
@@ -1030,7 +1030,7 @@ model CostCentreVersion {
 }
 
 model CostCentreAudit {
-  id           String   @id @default(uuid())
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   costCentreId String   @map("cost_centre_id")
   action       String
   actor        String?
@@ -1114,7 +1114,7 @@ model VehicleCompartment {
 }
 
 model VehicleVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   vehicleId  String   @map("vehicle_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -1129,7 +1129,7 @@ model VehicleVersion {
 }
 
 model VehicleAudit {
-  id        String   @id @default(uuid())
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   vehicleId String   @map("vehicle_id")
   action    String
   actor     String?
@@ -1175,7 +1175,7 @@ model PtlThreshold {
 }
 
 model PtlThresholdVersion {
-  id             String   @id @default(uuid())
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   ptlThresholdId String   @map("ptl_threshold_id")
   versionNo      Int      @map("version_no")
   snapshot       Json
@@ -1190,7 +1190,7 @@ model PtlThresholdVersion {
 }
 
 model PtlThresholdAudit {
-  id             String   @id @default(uuid())
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   ptlThresholdId String   @map("ptl_threshold_id")
   action         String
   actor          String?
@@ -1244,7 +1244,7 @@ model Cylinder {
 }
 
 model CylinderVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   cylinderId String   @map("cylinder_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -1259,7 +1259,7 @@ model CylinderVersion {
 }
 
 model CylinderAudit {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   cylinderId String   @map("cylinder_id")
   action     String
   actor      String?
@@ -1311,7 +1311,7 @@ model TelemetryDevice {
 }
 
 model TelemetryDeviceVersion {
-  id                String   @id @default(uuid())
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   telemetryDeviceId String   @map("telemetry_device_id")
   versionNo         Int      @map("version_no")
   snapshot          Json
@@ -1326,7 +1326,7 @@ model TelemetryDeviceVersion {
 }
 
 model TelemetryDeviceAudit {
-  id                String   @id @default(uuid())
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   telemetryDeviceId String   @map("telemetry_device_id")
   action            String
   actor             String?
@@ -1370,7 +1370,7 @@ model Zone {
 }
 
 model ZoneVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   zoneId     String   @map("zone_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -1385,7 +1385,7 @@ model ZoneVersion {
 }
 
 model ZoneAudit {
-  id        String   @id @default(uuid())
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   zoneId    String   @map("zone_id")
   action    String
   actor     String?
@@ -1451,7 +1451,7 @@ model Haulier {
 }
 
 model HaulierVersion {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   haulierId  String   @map("haulier_id")
   versionNo  Int      @map("version_no")
   snapshot   Json
@@ -1466,7 +1466,7 @@ model HaulierVersion {
 }
 
 model HaulierAudit {
-  id         String   @id @default(uuid())
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   haulierId  String   @map("haulier_id")
   action     String
   actor      String?

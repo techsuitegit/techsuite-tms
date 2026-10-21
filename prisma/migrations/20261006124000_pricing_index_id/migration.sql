@@ -1,5 +1,5 @@
 -- Store Pricing Procedure ids as text (PRC00001) and Pricing Rule ids as text (PRL00001).
--- Existing UUID values are kept as text. Condition row ids stay UUIDs.
+-- Existing UUID values are kept as text. Condition row ids are converted by branch_no_uuid_remaining.sql.
 
 do $$
 declare

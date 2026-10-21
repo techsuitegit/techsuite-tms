@@ -12,7 +12,6 @@ import {
   type TelemetryDeviceInput,
 } from "./telemetry-device-types";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
 const TELEMETRY_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
@@ -144,12 +143,6 @@ function optionalStorageTankId(body: Record<string, unknown>, field: string) {
   return value;
 }
 
-function requiredUuid(body: Record<string, unknown>, field: string) {
-  const value = requiredString(body, field);
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
-  return value;
-}
-
 function requiredDate(body: Record<string, unknown>, field: string) {
   const value = requiredString(body, field);
   if (!DATE_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be YYYY-MM-DD`, 400, field);
@@ -161,13 +154,6 @@ function optionalString(body: Record<string, unknown>, field: string) {
   if (value == null || value === "") return null;
   if (typeof value !== "string") throw new MdmError("VALIDATION", `${field} must be text`, 400, field);
   return value.trim() || null;
-}
-
-function optionalUuid(body: Record<string, unknown>, field: string) {
-  const value = optionalString(body, field);
-  if (!value) return null;
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
-  return value;
 }
 
 function optionalDate(body: Record<string, unknown>, field: string) {

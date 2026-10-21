@@ -12,10 +12,10 @@ import {
   type StorageTankInput,
 } from "./storage-tank-types";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
 const TANK_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+const LEGAL_ENTITY_ID_RE = TANK_ID_RE;
 
 export function isStorageTankId(value: string) {
   return TANK_ID_RE.test(value);
@@ -57,7 +57,7 @@ function parseFields(body: Record<string, unknown>, requireCode = true): Storage
   if (validTo && validTo < validFrom) {
     throw new MdmError("VALIDATION", "validTo must be on or after validFrom", 400, "validTo");
   }
-  const legalEntityId = optionalUuid(body, "legalEntityId");
+  const legalEntityId = optionalLegalEntityId(body, "legalEntityId");
   const shippingPointId = optionalShippingPointId(body, "shippingPointId");
   const customerCode = optionalString(body, "customerCode");
   const vendorId = optionalVendorId(body, "vendorId");
@@ -171,12 +171,6 @@ function requiredEnum<T extends string>(body: Record<string, unknown>, field: st
   return value as T;
 }
 
-function requiredUuid(body: Record<string, unknown>, field: string) {
-  const value = requiredString(body, field);
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
-  return value;
-}
-
 function requiredMaterialId(body: Record<string, unknown>, field: string) {
   const value = requiredString(body, field);
   if (!isMaterialId(value)) throw new MdmError("VALIDATION", `${field} must be a material id`, 400, field);
@@ -230,10 +224,12 @@ function optionalUomId(body: Record<string, unknown>, field: string) {
   return optionalParentId(body, field, isUomId, "uom id");
 }
 
-function optionalUuid(body: Record<string, unknown>, field: string) {
+function optionalLegalEntityId(body: Record<string, unknown>, field: string) {
   const value = optionalString(body, field);
   if (!value) return null;
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
+  if (!LEGAL_ENTITY_ID_RE.test(value)) {
+    throw new MdmError("VALIDATION", `${field} must be a legal entity id`, 400, field);
+  }
   return value;
 }
 

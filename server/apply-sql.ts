@@ -55,6 +55,8 @@ async function main() {
     "branch_haulier_index_id.sql",
     "branch_pricing_index_id.sql",
     "branch_remaining_index_id.sql",
+    "branch_version_audit_text_id.sql",
+    "branch_no_uuid_remaining.sql",
   ];
   const pool = createAppPool();
   try {

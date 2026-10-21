@@ -1,5 +1,5 @@
 -- Store the remaining master ids as text so generated indexes can be primary keys.
--- Existing UUID values are kept as text. Version and audit row ids stay UUIDs.
+-- Existing UUID values are kept as text. Version and audit row ids are converted by branch_version_audit_text_id.sql.
 -- Haulier zone_ids becomes text[] so it can store Zone index ids.
 
 do $$

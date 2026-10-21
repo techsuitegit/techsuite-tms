@@ -1,6 +1,6 @@
 -- WBS 2.3 Division — extend the stub created by sql/branch_shipping_point.sql.
 -- Schema "branch". AUTO approval. No UI. Do not create a second division table.
--- legal_entity_id is a UUID with no FK until WBS 2.1 exists.
+-- legal_entity_id is text with no FK until WBS 2.1 exists (converted by branch_no_uuid_remaining.sql).
 -- zone_id references branch.zone. Existing rows are backfilled when a zone exists.
 
 alter table branch.division add column if not exists legal_entity_id uuid;

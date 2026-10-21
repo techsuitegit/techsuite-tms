@@ -17,8 +17,6 @@ const COST_CENTRE_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0
 export function isCostCentreId(value: string) {
   return COST_CENTRE_ID_RE.test(value);
 }
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export function parseCreateBody(body: Record<string, unknown>): CostCentreInput {
   rejectUnknown(body, CREATE_FIELDS);
   return parseFields(body, false);
@@ -98,12 +96,6 @@ function requiredString(body: Record<string, unknown>, field: string) {
   return value.trim();
 }
 
-function requiredUuid(body: Record<string, unknown>, field: string) {
-  const value = requiredString(body, field);
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
-  return value;
-}
-
 function requiredDivisionId(body: Record<string, unknown>, field: string) {
   const value = requiredString(body, field);
   if (!isDivisionId(value)) throw new MdmError("VALIDATION", `${field} must be a division id`, 400, field);
@@ -135,13 +127,6 @@ function optionalShippingPointId(body: Record<string, unknown>, field: string) {
   if (typeof value !== "string" || !isShippingPointId(value)) {
     throw new MdmError("VALIDATION", `${field} must be a shipping point id`, 400, field);
   }
-  return value;
-}
-
-function optionalUuid(body: Record<string, unknown>, field: string) {
-  const value = optionalString(body, field);
-  if (!value) return null;
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
   return value;
 }
 

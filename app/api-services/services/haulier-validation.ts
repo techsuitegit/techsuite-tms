@@ -11,7 +11,6 @@ import {
   type HaulierInput,
 } from "./haulier-types";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9._\-/]{1,40}$/;
 const HAULIER_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
@@ -72,7 +71,7 @@ function parseFields(body: Record<string, unknown>, requireCode = true): Haulier
     email,
     vehicleTypes: requiredVehicleTypes(body),
     unitsAvailable: optionalInt(body, "unitsAvailable", 0),
-    zoneIds: optionalUuidList(body, "zoneIds"),
+    zoneIds: optionalZoneIdList(body, "zoneIds"),
     hazmatCertified: requiredBoolean(body, "hazmatCertified"),
     rateBasis: requiredEnum(body, "rateBasis", RATE_BASES),
     rate: requiredMoney(body, "rate", true),
@@ -122,14 +121,14 @@ function requiredVehicleTypes(body: Record<string, unknown>) {
   return value as HaulierInput["vehicleTypes"];
 }
 
-function optionalUuidList(body: Record<string, unknown>, field: string) {
+function optionalZoneIdList(body: Record<string, unknown>, field: string) {
   const value = body[field];
   if (value == null) return null;
   if (!Array.isArray(value)) throw new MdmError("VALIDATION", `${field} must be a list`, 400, field);
   const seen = new Set<string>();
   for (const item of value) {
     if (typeof item !== "string" || !isZoneId(item)) {
-      throw new MdmError("VALIDATION", `${field} must be UUIDs`, 400, field);
+      throw new MdmError("VALIDATION", `${field} must be zone ids`, 400, field);
     }
     if (seen.has(item)) throw new MdmError("VALIDATION", `${field} contains a duplicate`, 400, field);
     seen.add(item);

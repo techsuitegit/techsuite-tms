@@ -12,11 +12,11 @@ import {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CODE_RE = /^[A-Z0-9][A-Z0-9._\-/]{0,39}$/;
 const DIVISION_ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[A-Z0-9][A-Z0-9._\-/]{0,39})$/i;
+const LEGAL_ENTITY_ID_RE = DIVISION_ID_RE;
 
 export function isDivisionId(value: string) {
   return DIVISION_ID_RE.test(value);
 }
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[0-9+().\-\s]{6,20}$/;
 const LANGUAGE_RE = /^[A-Z]{2,8}$/;
@@ -79,7 +79,7 @@ function parseFields(body: Record<string, unknown>, requireCode = true): Divisio
   return {
     code,
     name: requiredString(body, "name"),
-    legalEntityId: requiredUuid(body, "legalEntityId"),
+    legalEntityId: requiredLegalEntityId(body, "legalEntityId"),
     zoneId: requiredZoneId(body, "zoneId"),
     searchTerm1: optionalString(body, "searchTerm1"),
     searchTerm2: optionalString(body, "searchTerm2"),
@@ -143,9 +143,11 @@ function requiredZoneId(body: Record<string, unknown>, field: string) {
   return value;
 }
 
-function requiredUuid(body: Record<string, unknown>, field: string) {
+function requiredLegalEntityId(body: Record<string, unknown>, field: string) {
   const value = requiredString(body, field);
-  if (!UUID_RE.test(value)) throw new MdmError("VALIDATION", `${field} must be a UUID`, 400, field);
+  if (!LEGAL_ENTITY_ID_RE.test(value)) {
+    throw new MdmError("VALIDATION", `${field} must be a legal entity id`, 400, field);
+  }
   return value;
 }
 
