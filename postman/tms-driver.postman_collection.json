@@ -1,0 +1,622 @@
+{
+  "info": {
+    "_postman_id": "d219e4a1-8c42-4b19-9f01-tms-driver",
+    "name": "TMS — Driver (WBS 2.19)",
+    "description": "Driver APIs on the Node process (port 3001). No UI. TMS-owned. SAFETY approval when licence / DG fields change on submit.\n\n## Setup\n1. `npm run api:sql` then restart `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run folder **0. Login + parents** first. Scripts save `token` and `homeShippingPointId` (prefers SP-CHE-01).\n4. Port **3001**, not 3000. No trailing slash.\n5. Codes `DR1-PM`, `DR7-PM`, `DR-REJ-PM`, `DR-IMP-PM` may already exist after one run. A second run with the same code or `dlNumber` returns 409.\n\n## Status (SAFETY field routing)\nPOST create → **DRAFT**\nPOST submit `{ reason }` → **PENDING** when SAFETY fields changed (or never published); otherwise **PUBLISHED**\nPOST approve `{ note }` → **PUBLISHED**\nPOST reject `{ note }` (mandatory) → **REJECTED**\nPOST archive `{ reason }` from PUBLISHED → **ARCHIVED**\nPATCH on PUBLISHED or REJECTED → **DRAFT**\nPATCH on PENDING → 409\ncode is locked after first save (409).\n\n## SAFETY fields\ndlNumber, dlValidTo, dlClass, hazEndorsed, hazEndorsementRef, hazEndorsementTo\n\n## hazEndorsed pair\nhazEndorsed true → hazEndorsementRef + hazEndorsementTo required\nhazEndorsed false → both must be absent\nphone normalised to +digits (spaces stripped)\n\n## Dispatch eligibility (GET only — no override)\n`GET .../dispatch-eligibility?dgClasses=&onDate=`\n- Licence expired → DRIVER_DL_EXPIRED\n- DG load + not endorsed → DRIVER_DG_ENDORSEMENT_ABSENT\n- DG load + endorsement past → DRIVER_DG_ENDORSEMENT_EXPIRED\n- Non-DG load (`dgClasses` empty) with hazEndorsed false → eligible\n\nreason: Correction | New record | Regulatory update | Commercial change\nenviroment is spelled that way on purpose.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "homeShippingPointId", "value": "" },
+    { "key": "driverId", "value": "" },
+    { "key": "nonDgDriverId", "value": "" },
+    { "key": "rejectDriverId", "value": "" },
+    { "key": "versionNo", "value": "1" },
+    { "key": "nonDgVersionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true, name: tms-api }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 Lookups Shipping Point — save parent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const rows = pm.response.json() || [];",
+                  "  const row = rows.find((r) => r.code === 'SP-CHE-01') || rows[0];",
+                  "  if (row && row.id) pm.collectionVariables.set('homeShippingPointId', row.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/shipping-points",
+            "description": "Published shipping points only. Prefers SP-CHE-01. Saves {{homeShippingPointId}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path (DG driver)",
+      "item": [
+        {
+          "name": "03 POST create DG driver",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('driverId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR1-PM\",\n  \"name\": \"M. Saravanan\",\n  \"phone\": \"+91 98404 21187\",\n  \"dlNumber\": \"TN-0120090004471\",\n  \"dlValidTo\": \"2029-06-30\",\n  \"dlClass\": \"HGV\",\n  \"firstLicensedOn\": \"2012-05-14\",\n  \"hazEndorsed\": true,\n  \"hazEndorsementRef\": \"DG-CERT-PM-001\",\n  \"hazEndorsementTo\": \"2027-02-28\",\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"hosRulesetCode\": \"IN-HOS-DEMO\",\n  \"isActive\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman create DG driver\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers",
+            "description": "201 { id, code, status: DRAFT, versionNo }. Phone spaces are stripped/normalised. Saves {{driverId}}."
+          }
+        },
+        {
+          "name": "04 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}",
+            "description": "200 full driver + home shipping labels + experienceYears, dlExpired, hazEndorsementExpired, dispatchBlocks (licence-only on plain read)."
+          }
+        },
+        {
+          "name": "05 GET list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers?q=DR1-PM&status=DRAFT&page=1&pageSize=20&sort=code",
+            "description": "200 { items, total, page }. Also supports homeShippingPointId, hazEndorsed, expiringWithinDays."
+          }
+        },
+        {
+          "name": "06 POST submit → PENDING",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/submit",
+            "description": "First publish always SAFETY → PENDING. Empty reason → 400."
+          }
+        },
+        {
+          "name": "07 PATCH while PENDING (expect 409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR1-PM\",\n  \"name\": \"M. Saravanan\",\n  \"phone\": \"+919840421187\",\n  \"dlNumber\": \"TN-0120090004471\",\n  \"dlValidTo\": \"2029-06-30\",\n  \"hazEndorsed\": true,\n  \"hazEndorsementRef\": \"DG-CERT-PM-001\",\n  \"hazEndorsementTo\": \"2027-02-28\",\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"isActive\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": 2\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}",
+            "description": "PENDING cannot be amended → 409 LOCKED."
+          }
+        },
+        {
+          "name": "08 POST approve → PUBLISHED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Licence and DG certificate checked\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/approve",
+            "description": "PENDING → PUBLISHED. 200 { status: PUBLISHED }."
+          }
+        },
+        {
+          "name": "09 GET by id (refresh versionNo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}",
+            "description": "Refresh {{versionNo}} after approve before PATCH."
+          }
+        },
+        {
+          "name": "10 PATCH phone only → DRAFT (AUTO path)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR1-PM\",\n  \"name\": \"M. Saravanan\",\n  \"phone\": \"+919840421199\",\n  \"dlNumber\": \"TN-0120090004471\",\n  \"dlValidTo\": \"2029-06-30\",\n  \"dlClass\": \"HGV\",\n  \"firstLicensedOn\": \"2012-05-14\",\n  \"hazEndorsed\": true,\n  \"hazEndorsementRef\": \"DG-CERT-PM-001\",\n  \"hazEndorsementTo\": \"2027-02-28\",\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"hosRulesetCode\": \"IN-HOS-DEMO\",\n  \"isActive\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"changeNote\": \"Phone update only\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}",
+            "description": "PUBLISHED → DRAFT. Only phone changed (not a SAFETY field)."
+          }
+        },
+        {
+          "name": "11 POST submit phone-only → PUBLISHED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Phone correction\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/submit",
+            "description": "No SAFETY field change vs last PUBLISHED → status PUBLISHED (AUTO)."
+          }
+        },
+        {
+          "name": "12 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/versions",
+            "description": "200 { versions[] }."
+          }
+        },
+        {
+          "name": "13 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/audit",
+            "description": "200 { events[] }."
+          }
+        },
+        {
+          "name": "14 GET lookups drivers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/drivers?q=DR1",
+            "description": "PUBLISHED and is_active only. Thin picker for route planning / vehicle default driver."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Non-DG driver + eligibility",
+      "item": [
+        {
+          "name": "15 POST create non-DG driver (DR7)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('nonDgDriverId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('nonDgVersionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR7-PM\",\n  \"name\": \"V. Manikandan\",\n  \"phone\": \"+919600048213\",\n  \"dlNumber\": \"TN-1220100007764\",\n  \"dlValidTo\": \"2027-10-18\",\n  \"hazEndorsed\": false,\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"isActive\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Non-DG driver for eligibility tests\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers",
+            "description": "hazEndorsed false — do not send hazEndorsementRef / hazEndorsementTo. Saves {{nonDgDriverId}}."
+          }
+        },
+        {
+          "name": "16 POST create with hazEndorsed false + expiry (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR7-BAD\",\n  \"name\": \"Bad Pair\",\n  \"phone\": \"+919600048214\",\n  \"dlNumber\": \"TN-1220100007765\",\n  \"dlValidTo\": \"2027-10-18\",\n  \"hazEndorsed\": false,\n  \"hazEndorsementTo\": \"2027-01-01\",\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers",
+            "description": "400 — hazEndorsementTo must be empty when hazEndorsed is false."
+          }
+        },
+        {
+          "name": "17 Submit + approve non-DG",
+          "item": [
+            {
+              "name": "17a Submit",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"New record\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/api/v1/mdm/drivers/{{nonDgDriverId}}/submit"
+              }
+            },
+            {
+              "name": "17b Approve",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"note\": \"OK for non-DG\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": "{{baseUrl}}/api/v1/mdm/drivers/{{nonDgDriverId}}/approve"
+              }
+            }
+          ]
+        },
+        {
+          "name": "18 Eligibility — non-DG load (expect eligible)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{nonDgDriverId}}/dispatch-eligibility?onDate=2026-11-04",
+            "description": "No dgClasses → only licence block can fire. hazEndorsed false is fine. 200 { eligible: true, blocks: [] }."
+          }
+        },
+        {
+          "name": "19 Eligibility — DG load (expect ABSENT)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{nonDgDriverId}}/dispatch-eligibility?dgClasses=Class%203&onDate=2026-11-04",
+            "description": "200 { eligible: false, blocks: [{ code: DRIVER_DG_ENDORSEMENT_ABSENT }] }. No override query param."
+          }
+        },
+        {
+          "name": "20 Eligibility — DG driver on DG load (expect eligible)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/dispatch-eligibility?dgClasses=Class%203&onDate=2026-11-04",
+            "description": "DR1-PM has valid licence and DG endorsement → eligible true."
+          }
+        },
+        {
+          "name": "21 Eligibility — override query ignored",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{nonDgDriverId}}/dispatch-eligibility?dgClasses=Class%203&onDate=2026-11-04&override=true",
+            "description": "override is ignored. Same ABSENT block as request 19. D-21: no override parameter."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reject path",
+      "item": [
+        {
+          "name": "22 POST create for reject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('rejectDriverId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR-REJ-PM\",\n  \"name\": \"Reject Candidate\",\n  \"phone\": \"+919876543210\",\n  \"dlNumber\": \"TN-9900990000999\",\n  \"dlValidTo\": \"2028-01-01\",\n  \"hazEndorsed\": false,\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"isActive\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers"
+          }
+        },
+        {
+          "name": "23 Submit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Submit for reject demo\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{rejectDriverId}}/submit"
+          }
+        },
+        {
+          "name": "24 Reject without note (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{rejectDriverId}}/reject",
+            "description": "note is mandatory → 400."
+          }
+        },
+        {
+          "name": "25 Reject with note → REJECTED",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Licence copy incomplete\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{rejectDriverId}}/reject",
+            "description": "PENDING → REJECTED."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Validation errors",
+      "item": [
+        {
+          "name": "26 POST without hazEndorsed (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR-NO-HAZ\",\n  \"name\": \"Missing Flag\",\n  \"phone\": \"+919111111111\",\n  \"dlNumber\": \"TN-1111111111111\",\n  \"dlValidTo\": \"2028-01-01\",\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers",
+            "description": "400 hazEndorsed is required (no default)."
+          }
+        },
+        {
+          "name": "27 POST bad phone (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR-BAD-PHONE\",\n  \"name\": \"Bad Phone\",\n  \"phone\": \"abc\",\n  \"dlNumber\": \"TN-2222222222222\",\n  \"dlValidTo\": \"2028-01-01\",\n  \"hazEndorsed\": false,\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers",
+            "description": "400 phone is invalid."
+          }
+        },
+        {
+          "name": "28 POST duplicate code (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR1-PM\",\n  \"name\": \"Duplicate\",\n  \"phone\": \"+919333333333\",\n  \"dlNumber\": \"TN-3333333333333\",\n  \"dlValidTo\": \"2028-01-01\",\n  \"hazEndorsed\": false,\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers",
+            "description": "409 after DR1-PM already exists."
+          }
+        },
+        {
+          "name": "29 PATCH change code (expect 409 CODE_LOCKED)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.sendRequest({",
+                  "  url: pm.collectionVariables.get('baseUrl') + '/api/v1/mdm/drivers/' + pm.collectionVariables.get('driverId'),",
+                  "  method: 'GET',",
+                  "  header: { Authorization: 'Bearer ' + pm.collectionVariables.get('token') }",
+                  "}, function (err, res) {",
+                  "  if (!err && res.code === 200) {",
+                  "    const json = res.json();",
+                  "    if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DR1-RENAMED\",\n  \"name\": \"M. Saravanan\",\n  \"phone\": \"+919840421199\",\n  \"dlNumber\": \"TN-0120090004471\",\n  \"dlValidTo\": \"2029-06-30\",\n  \"hazEndorsed\": true,\n  \"hazEndorsementRef\": \"DG-CERT-PM-001\",\n  \"hazEndorsementTo\": \"2027-02-28\",\n  \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n  \"isActive\": true,\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"Correction\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}",
+            "description": "code locked after insert → 409."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Import / export / archive",
+      "item": [
+        {
+          "name": "30 GET export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/export",
+            "description": "text/csv of DRAFT + PUBLISHED rows."
+          }
+        },
+        {
+          "name": "31 POST import JSON rows",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"code\": \"DR-IMP-PM\",\n    \"name\": \"Import Driver\",\n    \"phone\": \"+919444444444\",\n    \"dlNumber\": \"TN-4444444444444\",\n    \"dlValidTo\": \"2028-06-01\",\n    \"hazEndorsed\": false,\n    \"homeShippingPointId\": \"{{homeShippingPointId}}\",\n    \"isActive\": true,\n    \"validFrom\": \"2026-04-01\",\n    \"reason\": \"New record\"\n  }\n]",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/import",
+            "description": "200 { accepted[], rejected[] }. Row-level fail, not all-or-nothing. Also accepts text/csv."
+          }
+        },
+        {
+          "name": "32 POST archive published DG driver",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Left the company\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{driverId}}/archive",
+            "description": "PUBLISHED → ARCHIVED. Drops from lookups. Use only when you do not need DR1-PM in later requests."
+          }
+        },
+        {
+          "name": "33 POST remove (soft delete)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/drivers/{{rejectDriverId}}/remove",
+            "description": "Soft delete. 409 if any PUBLISHED vehicle still has this driver as default_driver_id."
+          }
+        }
+      ]
+    }
+  ]
+}

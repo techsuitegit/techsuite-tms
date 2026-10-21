@@ -141,3 +141,7 @@ on conflict (code) do nothing;
 insert into public.gindexmst (code, name, noprefix, nolength, lastno, padding)
 values ('TLM', 'Telemetry Device', 'TLM', 5, 0, true)
 on conflict (code) do nothing;
+
+insert into public.gindexmst (code, name, noprefix, nolength, lastno, padding)
+values ('DRV', 'Driver', 'DRV', 5, 0, true)
+on conflict (code) do nothing;

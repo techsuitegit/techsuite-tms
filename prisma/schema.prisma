@@ -424,6 +424,7 @@ model ShippingPoint {
   vehicles Vehicle[]
   cylinders Cylinder[]
   costCentres CostCentre[]
+  drivers Driver[]
 
   @@map("shipping_point")
   @@schema("branch")
@@ -1060,6 +1061,7 @@ model Vehicle {
   shippingPointId  String    @map("shipping_point_id")
   divisionId       String    @map("division_id")
   costCentreId     String    @map("cost_centre_id")
+  defaultDriverId  String?   @map("default_driver_id")
   capacity         Decimal   @db.Decimal(18, 3)
   capacityUomId    String    @map("capacity_uom_id")
   gvwKg            Decimal?  @map("gvw_kg") @db.Decimal(18, 3)
@@ -1089,6 +1091,7 @@ model Vehicle {
   shippingPoint ShippingPoint         @relation(fields: [shippingPointId], references: [id])
   division      Division              @relation(fields: [divisionId], references: [id])
   capacityUom   Uom                   @relation("VehicleCapacityUom", fields: [capacityUomId], references: [id])
+  defaultDriver Driver?               @relation("VehicleDefaultDriver", fields: [defaultDriverId], references: [id])
   compartments  VehicleCompartment[]
   versions      VehicleVersion[]
   audits        VehicleAudit[]
@@ -1270,6 +1273,76 @@ model CylinderAudit {
   cylinder Cylinder @relation(fields: [cylinderId], references: [id])
 
   @@map("cylinder_audit")
+  @@schema("branch")
+}
+
+/// WBS 2.19 Driver. SAFETY approval for licence / DG fields. TMS-owned. No UI.
+/// id stores the generated index number (for example DRV00001).
+/// Applied via sql/branch_driver.sql. Also adds vehicle.default_driver_id.
+model Driver {
+  id                   String    @id
+  code                 String
+  name                 String
+  phone                String
+  dlNumber             String    @map("dl_number")
+  dlValidTo            DateTime  @map("dl_valid_to") @db.Date
+  dlClass              String?   @map("dl_class")
+  firstLicensedOn      DateTime? @map("first_licensed_on") @db.Date
+  hazEndorsed          Boolean   @map("haz_endorsed")
+  hazEndorsementRef    String?   @map("haz_endorsement_ref")
+  hazEndorsementTo     DateTime? @map("haz_endorsement_to") @db.Date
+  homeShippingPointId  String    @map("home_shipping_point_id")
+  hosRulesetCode       String?   @map("hos_ruleset_code")
+  isActive             Boolean   @default(true) @map("is_active")
+  validFrom            DateTime  @map("valid_from") @db.Date
+  validTo              DateTime? @map("valid_to") @db.Date
+  reason               String
+  changeNote           String?   @map("change_note")
+  status               String
+  versionNo            Int       @default(1) @map("version_no")
+  externalId           String?   @map("external_id")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by")
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy            String?   @map("updated_by")
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  homeShippingPoint ShippingPoint @relation(fields: [homeShippingPointId], references: [id])
+  defaultForVehicles Vehicle[]    @relation("VehicleDefaultDriver")
+  versions          DriverVersion[]
+  audits            DriverAudit[]
+
+  @@map("driver")
+  @@schema("branch")
+}
+
+model DriverVersion {
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  driverId   String   @map("driver_id")
+  versionNo  Int      @map("version_no")
+  snapshot   Json
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy String?  @map("recorded_by")
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@unique([driverId, versionNo], map: "driver_version_udx")
+  @@map("driver_version")
+  @@schema("branch")
+}
+
+model DriverAudit {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  driverId  String   @map("driver_id")
+  action    String
+  actor     String?
+  note      String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@map("driver_audit")
   @@schema("branch")
 }
 

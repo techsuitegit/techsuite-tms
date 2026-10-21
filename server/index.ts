@@ -12,6 +12,7 @@ import { StorageTankController } from "@/app/api-services/controllers/storage-ta
 import { VehicleController } from "@/app/api-services/controllers/vehicle.controller";
 import { PtlThresholdController } from "@/app/api-services/controllers/ptl-threshold.controller";
 import { CylinderController } from "@/app/api-services/controllers/cylinder.controller";
+import { DriverController } from "@/app/api-services/controllers/driver.controller";
 import { TelemetryDeviceController } from "@/app/api-services/controllers/telemetry-device.controller";
 import { HaulierController } from "@/app/api-services/controllers/haulier.controller";
 import { ZoneController } from "@/app/api-services/controllers/zone.controller";
@@ -32,6 +33,7 @@ import { StorageTankRepository } from "@/app/api-services/repositories/storage-t
 import { VehicleRepository } from "@/app/api-services/repositories/vehicle.repository";
 import { PtlThresholdRepository } from "@/app/api-services/repositories/ptl-threshold.repository";
 import { CylinderRepository } from "@/app/api-services/repositories/cylinder.repository";
+import { DriverRepository } from "@/app/api-services/repositories/driver.repository";
 import { TelemetryDeviceRepository } from "@/app/api-services/repositories/telemetry-device.repository";
 import { HaulierRepository } from "@/app/api-services/repositories/haulier.repository";
 import { ZoneRepository } from "@/app/api-services/repositories/zone.repository";
@@ -50,6 +52,7 @@ import { StorageTankRoutes } from "@/app/api-services/routes/storage-tank.routes
 import { VehicleRoutes } from "@/app/api-services/routes/vehicle.routes";
 import { PtlThresholdRoutes } from "@/app/api-services/routes/ptl-threshold.routes";
 import { CylinderRoutes } from "@/app/api-services/routes/cylinder.routes";
+import { DriverRoutes } from "@/app/api-services/routes/driver.routes";
 import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-device.routes";
 import { HaulierRoutes } from "@/app/api-services/routes/haulier.routes";
 import { ZoneRoutes } from "@/app/api-services/routes/zone.routes";
@@ -69,6 +72,7 @@ import { StorageTankService } from "@/app/api-services/services/storage-tank.ser
 import { VehicleService } from "@/app/api-services/services/vehicle.service";
 import { PtlThresholdService } from "@/app/api-services/services/ptl-threshold.service";
 import { CylinderService } from "@/app/api-services/services/cylinder.service";
+import { DriverService } from "@/app/api-services/services/driver.service";
 import { TelemetryDeviceService } from "@/app/api-services/services/telemetry-device.service";
 import { HaulierService } from "@/app/api-services/services/haulier.service";
 import { ZoneService } from "@/app/api-services/services/zone.service";
@@ -110,6 +114,9 @@ const vehicleController = new VehicleController(
 const cylinderController = new CylinderController(
   new CylinderService(new CylinderRepository(pool), new indexgenerater(pool)),
 );
+const driverController = new DriverController(
+  new DriverService(new DriverRepository(pool), new indexgenerater(pool)),
+);
 const telemetryDeviceController = new TelemetryDeviceController(
   new TelemetryDeviceService(new TelemetryDeviceRepository(pool), new indexgenerater(pool)),
 );
@@ -143,6 +150,7 @@ const routes = [
   ...new VehicleRoutes(vehicleController).register(),
   ...new PtlThresholdRoutes(ptlThresholdController).register(),
   ...new CylinderRoutes(cylinderController).register(),
+  ...new DriverRoutes(driverController).register(),
   ...new TelemetryDeviceRoutes(telemetryDeviceController).register(),
   ...new HaulierRoutes(haulierController).register(),
   ...new ZoneRoutes(zoneController).register(),
