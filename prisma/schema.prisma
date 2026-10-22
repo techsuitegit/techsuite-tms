@@ -1346,6 +1346,101 @@ model DriverAudit {
   @@schema("branch")
 }
 
+/// WBS 2.20 DG Restriction Kind — reference catalogue (seeded). Not a governed master.
+/// Applied via sql/branch_dg_restriction_zone.sql.
+model DgRestrictionKind {
+  code              String  @id
+  name              String
+  requiredParams    String[] @map("required_params")
+  paramTypes        Json     @map("param_types")
+  vehicleAttribute  String?  @map("vehicle_attribute")
+  isTimeScoped      Boolean  @map("is_time_scoped")
+  comparatorStatus  String   @map("comparator_status")
+
+  zones DgRestrictionZone[]
+
+  @@map("dg_restriction_kind")
+  @@schema("branch")
+}
+
+/// WBS 2.20 DG Restriction Zone. SAFETY entity-level. TMS-owned. No UI.
+/// geom is GeoJSON Polygon jsonb (WGS-84). PostGIS optional later; bbox columns support /feed.
+/// id stores the generated index number (for example DGZ00001).
+model DgRestrictionZone {
+  id               String                      @id
+  code             String
+  name             String
+  kindCode         String                      @map("kind_code")
+  dgClasses        String[]                    @map("dg_classes")
+  geom             Json
+  bboxMinLon       Float                       @map("bbox_min_lon")
+  bboxMinLat       Float                       @map("bbox_min_lat")
+  bboxMaxLon       Float                       @map("bbox_max_lon")
+  bboxMaxLat       Float                       @map("bbox_max_lat")
+  geomSource       String                      @map("geom_source")
+  windowFromMin    Int                         @map("window_from_min")
+  windowToMin      Int                         @map("window_to_min")
+  params           Json                        @default("{}")
+  sourceKind       String                      @map("source_kind")
+  sourceRef        String                      @map("source_ref")
+  sourceAuthority  String?                     @map("source_authority")
+  sourceDated      DateTime?                   @map("source_dated") @db.Date
+  sourceUrl        String?                     @map("source_url")
+  reviewDue        DateTime                    @map("review_due") @db.Date
+  notes            String?
+  isCurrent        Boolean                     @default(true) @map("is_current")
+  isActive         Boolean                     @default(true) @map("is_active")
+  validFrom        DateTime                    @map("valid_from") @db.Date
+  validTo          DateTime?                   @map("valid_to") @db.Date
+  reason           String
+  changeNote       String?                     @map("change_note")
+  status           String
+  versionNo        Int                         @default(1) @map("version_no")
+  externalId       String?                     @map("external_id")
+  createdAt        DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy        String?                     @map("created_by")
+  updatedAt        DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy        String?                     @map("updated_by")
+  deletedAt        DateTime?                   @map("deleted_at") @db.Timestamptz(6)
+
+  kind     DgRestrictionKind            @relation(fields: [kindCode], references: [code])
+  versions DgRestrictionZoneVersion[]
+  audits   DgRestrictionZoneAudit[]
+
+  @@map("dg_restriction_zone")
+  @@schema("branch")
+}
+
+model DgRestrictionZoneVersion {
+  id                   String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  dgRestrictionZoneId  String   @map("dg_restriction_zone_id")
+  versionNo            Int      @map("version_no")
+  snapshot             Json
+  recordedAt           DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy           String?  @map("recorded_by")
+
+  zone DgRestrictionZone @relation(fields: [dgRestrictionZoneId], references: [id])
+
+  @@unique([dgRestrictionZoneId, versionNo], map: "dg_restriction_zone_version_udx")
+  @@map("dg_restriction_zone_version")
+  @@schema("branch")
+}
+
+model DgRestrictionZoneAudit {
+  id                   String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  dgRestrictionZoneId  String   @map("dg_restriction_zone_id")
+  action               String
+  actor                String?
+  note                 String?
+  payload              Json?
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  zone DgRestrictionZone @relation(fields: [dgRestrictionZoneId], references: [id])
+
+  @@map("dg_restriction_zone_audit")
+  @@schema("branch")
+}
+
 /// WBS 2.16 Telemetry Device. AUTO approval. Register only. No readings.
 /// id stores the generated index number (for example TLM00001). Older rows keep their UUID as text.
 /// Applied via sql/branch_telemetry_device.sql. Do not expose a UI.

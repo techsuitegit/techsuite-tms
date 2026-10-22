@@ -1,0 +1,438 @@
+{
+  "info": {
+    "_postman_id": "d220e4a1-9c42-4b19-9f01-tms-dgz",
+    "name": "TMS — DG Restriction Zone (WBS 2.20)",
+    "description": "DG Restriction Zone APIs — Node port **3001**, No UI. SAFETY on every write. Geometry = GeoJSON Polygon (WGS-84 lon/lat). No check/evaluate.\n\n## Setup\n1. `npm run api:sql` then restart `npm run api`.\n2. Set `login` / `password`.\n3. Run **0. Login** first.\n4. Seed rows `Z-ADY` / `Z-KAT` are ILLUSTRATIVE DRAFT. Creating `Z-ADY` again → 409; use `Z-ADY-PM` for a fresh run, or GET list and set `{{zoneId}}`.\n\n## Status\nPOST → DRAFT · submit → PENDING (blocked if ILLUSTRATIVE) · approve → PUBLISHED (maker ≠ checker) · archive from PUBLISHED\n\n## Exact story payloads\nRequest **02** = V7 Z-ADY sample (ILLUSTRATIVE). Request **08** = publishable NOTIFICATION shape.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "zoneId", "value": "" },
+    { "key": "publishableZoneId", "value": "" },
+    { "key": "versionNo", "value": "1" },
+    { "key": "approverToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "200 { ok: true, name: tms-api }"
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}. enviroment spelling is intentional."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Story sample — ILLUSTRATIVE (cannot publish)",
+      "item": [
+        {
+          "name": "02 POST create — exact Z-ADY story body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('zoneId', json.id);",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-ADY-PM\",\n  \"name\": \"Adyar bridge — 25 t gross weight limit\",\n  \"kindCode\": \"WEIGHT\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {\n    \"maxKg\": 25000\n  },\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative structural limit — replace via form 07\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones",
+            "description": "Exact story POST body (code Z-ADY-PM so it does not collide with seed Z-ADY). 201 { id, status: DRAFT }. publishable: false. sourceAuthority / sourceDated omitted — legal only for ILLUSTRATIVE."
+          }
+        },
+        {
+          "name": "03 GET by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{zoneId}}",
+            "description": "200 with geometry GeoJSON, areaSqKm, vertexCount, publishable:false, comparatorStatus."
+          }
+        },
+        {
+          "name": "04 GET list DRAFT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones?q=Z-ADY&status=DRAFT&page=1&pageSize=20&sort=code"
+          }
+        },
+        {
+          "name": "05 POST submit ILLUSTRATIVE (expect 400 SOURCE_ILLUSTRATIVE)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Ready for approval\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{zoneId}}/submit",
+            "description": "400 { code: SOURCE_ILLUSTRATIVE, field: sourceKind }. Row stays DRAFT."
+          }
+        },
+        {
+          "name": "06 GET feed (expect total 0 if nothing published)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/feed",
+            "description": "Illustrative zones never appear. Seed + 02 cannot publish."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Publishable path — exact NOTIFICATION shape",
+      "item": [
+        {
+          "name": "07 POST create — publishable (NOTIFICATION)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('publishableZoneId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-PM-REAL\",\n  \"name\": \"Sample researched corridor\",\n  \"kindCode\": \"TIME\",\n  \"dgClasses\": [\"Class 3\"],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.1980, 13.0700],\n      [80.2050, 13.0700],\n      [80.2050, 13.0650],\n      [80.1980, 13.0650],\n      [80.1980, 13.0700]\n    ]]\n  },\n  \"geomSource\": \"DIGITISED_FROM_NOTIFICATION\",\n  \"windowFromMin\": 450,\n  \"windowToMin\": 600,\n  \"params\": {},\n  \"sourceKind\": \"NOTIFICATION\",\n  \"sourceRef\": \"GTCP Notice 2026/042\",\n  \"sourceAuthority\": \"Greater Chennai Traffic Police\",\n  \"sourceDated\": \"2026-03-01\",\n  \"sourceUrl\": \"https://example.local/notices/2026-042\",\n  \"reviewDue\": \"2027-03-01\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\",\n  \"changeNote\": \"Postman publishable create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones",
+            "description": "Story second sample shape (filled values). sourceAuthority + sourceDated required when not ILLUSTRATIVE. 201 DRAFT, publishable: true."
+          }
+        },
+        {
+          "name": "08 POST submit → PENDING",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Regulatory update\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/submit",
+            "description": "Exact submit payload. DRAFT → PENDING (entity SAFETY)."
+          }
+        },
+        {
+          "name": "09 POST approve → PUBLISHED",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{approverToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Source verified\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/approve",
+            "description": "Exact approve payload. Set {{approverToken}} to a different user JWT than submitter. Same user → 403 MAKER_IS_CHECKER. If you only have one user, leave Authorization as collection Bearer {{token}} and expect 403."
+          }
+        },
+        {
+          "name": "09b POST approve with collection token (may 403 MAKER_IS_CHECKER)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Source verified\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/approve"
+          }
+        },
+        {
+          "name": "10 GET feed?dgClass=Class 3",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/feed?dgClass=Class%203",
+            "description": "Returns published + active + in-force. Includes dgClasses=[] blanket zones and Class 3 zones."
+          }
+        },
+        {
+          "name": "11 GET lookups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/lookups/dg-restriction-zones?q=Z-PM",
+            "description": "PUBLISHED only, no geometry: { id, code, name, kindCode, resolvedVersionId }[]"
+          }
+        },
+        {
+          "name": "12 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/versions"
+          }
+        },
+        {
+          "name": "13 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/audit"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Validation — exact error cases",
+      "item": [
+        {
+          "name": "14 POST WEIGHT missing maxKg (PARAM_REQUIRED)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-W\",\n  \"name\": \"Bad weight — missing maxKg\",\n  \"kindCode\": \"WEIGHT\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {},\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative bad params xx\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones"
+          }
+        },
+        {
+          "name": "15 POST WEIGHT maxKg string + maxkg typo (PARAM_TYPE / UNEXPECTED)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-W2\",\n  \"name\": \"Bad weight types\",\n  \"kindCode\": \"WEIGHT\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {\n    \"maxKg\": \"25000\",\n    \"maxkg\": 1\n  },\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative type mismatch xx\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones"
+          }
+        },
+        {
+          "name": "16 POST WINDOW_EMPTY (420 = 420)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-WIN\",\n  \"name\": \"Bad window\",\n  \"kindCode\": \"TIME\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 420,\n  \"windowToMin\": 420,\n  \"params\": {},\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative empty window\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones"
+          }
+        },
+        {
+          "name": "17 POST midnight wrap window (1320 → 300) — OK",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-PM-NIGHT\",\n  \"name\": \"Night ban — wraps midnight\",\n  \"kindCode\": \"TIME\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 1320,\n  \"windowToMin\": 300,\n  \"params\": {},\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative night ban wrap\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones",
+            "description": "201 — from > to means wraps midnight. Values preserved, not normalised."
+          }
+        },
+        {
+          "name": "18 POST KIND_UNKNOWN",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-KIND\",\n  \"name\": \"Unknown kind\",\n  \"kindCode\": \"ESCORT_REQUIRED\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {},\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative unknown kind\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones"
+          }
+        },
+        {
+          "name": "19 POST NOTIFICATION without sourceAuthority",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-AUTH\",\n  \"name\": \"Missing authority\",\n  \"kindCode\": \"PROHIBIT\",\n  \"dgClasses\": [\"Class 2.1\"],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {},\n  \"sourceKind\": \"NOTIFICATION\",\n  \"sourceRef\": \"Notice without authority\",\n  \"sourceDated\": \"2026-03-01\",\n  \"reviewDue\": \"2027-03-01\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones",
+            "description": "400 SOURCE_AUTHORITY_REQUIRED"
+          }
+        },
+        {
+          "name": "20 POST sourceRef too short",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-REF\",\n  \"name\": \"Short ref\",\n  \"kindCode\": \"PROHIBIT\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020],\n      [80.2550, 13.0065]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {},\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"short\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones",
+            "description": "400 SOURCE_REF_TOO_SHORT (need ≥ 8 chars)"
+          }
+        },
+        {
+          "name": "21 POST unclosed ring (GEOMETRY_INVALID)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"Z-BAD-GEOM\",\n  \"name\": \"Unclosed ring\",\n  \"kindCode\": \"PROHIBIT\",\n  \"dgClasses\": [],\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [[\n      [80.2550, 13.0065],\n      [80.2605, 13.0065],\n      [80.2605, 13.0020],\n      [80.2550, 13.0020]\n    ]]\n  },\n  \"geomSource\": \"SKETCHED\",\n  \"windowFromMin\": 0,\n  \"windowToMin\": 1440,\n  \"params\": {},\n  \"sourceKind\": \"ILLUSTRATIVE\",\n  \"sourceRef\": \"Illustrative unclosed ring\",\n  \"reviewDue\": \"2026-12-31\",\n  \"validFrom\": \"2026-04-01\",\n  \"reason\": \"New record\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Import / export / archive",
+      "item": [
+        {
+          "name": "22 GET export GeoJSON FeatureCollection",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/export",
+            "description": "FeatureCollection; properties carry non-geometry fields including sourceKind / sourceRef."
+          }
+        },
+        {
+          "name": "23 POST import FeatureCollection",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"FeatureCollection\",\n  \"features\": [\n    {\n      \"type\": \"Feature\",\n      \"geometry\": {\n        \"type\": \"Polygon\",\n        \"coordinates\": [[\n          [80.2700, 13.0100],\n          [80.2750, 13.0100],\n          [80.2750, 13.0050],\n          [80.2700, 13.0050],\n          [80.2700, 13.0100]\n        ]]\n      },\n      \"properties\": {\n        \"code\": \"Z-IMP-PM\",\n        \"name\": \"Import feature — illustrative\",\n        \"kindCode\": \"PROHIBIT\",\n        \"dgClasses\": [],\n        \"geomSource\": \"SKETCHED\",\n        \"windowFromMin\": 0,\n        \"windowToMin\": 1440,\n        \"params\": {},\n        \"sourceKind\": \"ILLUSTRATIVE\",\n        \"sourceRef\": \"Illustrative import feature\",\n        \"reviewDue\": \"2026-12-31\",\n        \"validFrom\": \"2026-04-01\",\n        \"reason\": \"New record\"\n      }\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/import",
+            "description": "200 { accepted[], rejected[] }. Row-level fail."
+          }
+        },
+        {
+          "name": "24 POST archive published zone",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Notification withdrawn\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/archive",
+            "description": "Only when status is PUBLISHED. Drops from /feed immediately."
+          }
+        },
+        {
+          "name": "25 POST reject (PENDING only)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Source citation incomplete\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/mdm/dg-restriction-zones/{{publishableZoneId}}/reject",
+            "description": "note mandatory. Use on a PENDING row (not after archive)."
+          }
+        }
+      ]
+    }
+  ]
+}
