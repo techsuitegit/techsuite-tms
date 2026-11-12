@@ -59,6 +59,7 @@ async function main() {
     "branch_no_uuid_remaining.sql",
     "branch_driver.sql",
     "branch_dg_restriction_zone.sql",
+    "branch_delivery_order.sql",
   ];
   const pool = createAppPool();
   try {

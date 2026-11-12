@@ -14,6 +14,7 @@ import { PtlThresholdController } from "@/app/api-services/controllers/ptl-thres
 import { CylinderController } from "@/app/api-services/controllers/cylinder.controller";
 import { DriverController } from "@/app/api-services/controllers/driver.controller";
 import { DgRestrictionController } from "@/app/api-services/controllers/dg-restriction.controller";
+import { OrderController } from "@/app/api-services/controllers/order.controller";
 import { TelemetryDeviceController } from "@/app/api-services/controllers/telemetry-device.controller";
 import { HaulierController } from "@/app/api-services/controllers/haulier.controller";
 import { ZoneController } from "@/app/api-services/controllers/zone.controller";
@@ -36,6 +37,7 @@ import { PtlThresholdRepository } from "@/app/api-services/repositories/ptl-thre
 import { CylinderRepository } from "@/app/api-services/repositories/cylinder.repository";
 import { DriverRepository } from "@/app/api-services/repositories/driver.repository";
 import { DgRestrictionRepository } from "@/app/api-services/repositories/dg-restriction.repository";
+import { OrderRepository } from "@/app/api-services/repositories/order.repository";
 import { TelemetryDeviceRepository } from "@/app/api-services/repositories/telemetry-device.repository";
 import { HaulierRepository } from "@/app/api-services/repositories/haulier.repository";
 import { ZoneRepository } from "@/app/api-services/repositories/zone.repository";
@@ -56,6 +58,7 @@ import { PtlThresholdRoutes } from "@/app/api-services/routes/ptl-threshold.rout
 import { CylinderRoutes } from "@/app/api-services/routes/cylinder.routes";
 import { DriverRoutes } from "@/app/api-services/routes/driver.routes";
 import { DgRestrictionRoutes } from "@/app/api-services/routes/dg-restriction.routes";
+import { OrderRoutes } from "@/app/api-services/routes/order.routes";
 import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-device.routes";
 import { HaulierRoutes } from "@/app/api-services/routes/haulier.routes";
 import { ZoneRoutes } from "@/app/api-services/routes/zone.routes";
@@ -77,6 +80,7 @@ import { PtlThresholdService } from "@/app/api-services/services/ptl-threshold.s
 import { CylinderService } from "@/app/api-services/services/cylinder.service";
 import { DriverService } from "@/app/api-services/services/driver.service";
 import { DgRestrictionService } from "@/app/api-services/services/dg-restriction.service";
+import { OrderService } from "@/app/api-services/services/order.service";
 import { TelemetryDeviceService } from "@/app/api-services/services/telemetry-device.service";
 import { HaulierService } from "@/app/api-services/services/haulier.service";
 import { ZoneService } from "@/app/api-services/services/zone.service";
@@ -124,6 +128,9 @@ const driverController = new DriverController(
 const dgRestrictionController = new DgRestrictionController(
   new DgRestrictionService(new DgRestrictionRepository(pool), new indexgenerater(pool)),
 );
+const orderController = new OrderController(
+  new OrderService(new OrderRepository(pool), new indexgenerater(pool)),
+);
 const telemetryDeviceController = new TelemetryDeviceController(
   new TelemetryDeviceService(new TelemetryDeviceRepository(pool), new indexgenerater(pool)),
 );
@@ -159,6 +166,7 @@ const routes = [
   ...new CylinderRoutes(cylinderController).register(),
   ...new DriverRoutes(driverController).register(),
   ...new DgRestrictionRoutes(dgRestrictionController).register(),
+  ...new OrderRoutes(orderController).register(),
   ...new TelemetryDeviceRoutes(telemetryDeviceController).register(),
   ...new HaulierRoutes(haulierController).register(),
   ...new ZoneRoutes(zoneController).register(),

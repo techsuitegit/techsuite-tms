@@ -1,0 +1,417 @@
+{
+  "info": {
+    "_postman_id": "a11c0e7e-0rd1-4b19-9f01-tms-ord",
+    "name": "TMS — Order Intake (pre-M02)",
+    "description": "Delivery Order intake on Node port **3001**. No UI. Transactional — not MDM DRAFT/PENDING/PUBLISHED.\n\nERP stand-in: **POST create** or **CSV/JSON import**. Qual columns default `PENDING` for M02 later.\n\n## Setup\n1. `npm run api:sql` then restart `npm run api`.\n2. Set collection vars `login` / `password`.\n3. Run folder **0. Login + parents** first — scripts save `token`, `materialId`, `uomId`, `storageTankId`, codes for import.\n4. Port **3001**, not 3000. No trailing slash.\n5. Re-running create with the same `orderNo` / `externalId` → 409. Change suffix (e.g. `-PM2`) or use import upsert.\n\n## Status (lifecycle)\nPOST create → **OPEN** (`qualOutcome: PENDING`)\nPATCH → only while **OPEN** and `qualOutcome: PENDING` (needs `versionNo`)\nPOST cancel `{ reason }` → **CANCELLED**\nDELETE → soft delete\n\n## Modes\nFORECAST | MONITOR | SCHEDULED | WILL_CALL\n\n## Import\n`POST /api/v1/ops/orders/import`\n- `Content-Type: application/json` → `{ \"rows\": [ ... ] }` or bare array\n- `Content-Type: text/csv` → header row + data\n- Resolve by id **or** code: `materialCode`, `uomCode` / `requestedQtyUomCode`, `storageTankCode`, `shippingPointCode`, `divisionCode`\n- Upsert by `externalId` (preferred) or `orderNo`\n- Response: `{ accepted: [...], rejected: [{ row, message, field }] }`\n\n## Packed vs bulk\n`isPacked: false` → `storageTankId` required\n`isPacked: true` → `storageTankId` must be null/omitted\n\nenviroment spelling on login is intentional.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "orderId", "value": "" },
+    { "key": "packedOrderId", "value": "" },
+    { "key": "versionNo", "value": "1" },
+    { "key": "materialId", "value": "" },
+    { "key": "materialCode", "value": "" },
+    { "key": "uomId", "value": "" },
+    { "key": "uomCode", "value": "" },
+    { "key": "storageTankId", "value": "" },
+    { "key": "storageTankCode", "value": "" },
+    { "key": "shippingPointId", "value": "" },
+    { "key": "shippingPointCode", "value": "" },
+    { "key": "divisionId", "value": "" },
+    { "key": "runSuffix", "value": "PM" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "No token. 200 { ok: true, name: tms-api }."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Public. Saves accessToken to {{token}}."
+          }
+        },
+        {
+          "name": "02 GET lookups — save parents",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) return;",
+                  "const json = pm.response.json() || {};",
+                  "const first = (arr) => (Array.isArray(arr) && arr[0]) ? arr[0] : null;",
+                  "const mat = first(json.materials);",
+                  "const uom = first(json.uoms);",
+                  "const tank = first(json.storageTanks);",
+                  "const sp = first(json.shippingPoints);",
+                  "const div = first(json.divisions);",
+                  "if (mat) { pm.collectionVariables.set('materialId', mat.id); pm.collectionVariables.set('materialCode', mat.code); }",
+                  "if (uom) { pm.collectionVariables.set('uomId', uom.id); pm.collectionVariables.set('uomCode', uom.code); }",
+                  "if (tank) { pm.collectionVariables.set('storageTankId', tank.id); pm.collectionVariables.set('storageTankCode', tank.code); }",
+                  "if (sp) { pm.collectionVariables.set('shippingPointId', sp.id); pm.collectionVariables.set('shippingPointCode', sp.code); }",
+                  "if (div) pm.collectionVariables.set('divisionId', div.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/lookups/orders",
+            "description": "Published materials, uoms, tanks, shipping points, divisions + enums. Saves first of each to collection vars (ids + codes)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Happy path — bulk order",
+      "item": [
+        {
+          "name": "03 POST create bulk order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('orderId', json.id);",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNo\": \"ERP-ORD-{{runSuffix}}-1001\",\n  \"externalId\": \"SAP-{{runSuffix}}-1001\",\n  \"customerCode\": \"C-100\",\n  \"customerName\": \"Demo Customer\",\n  \"materialId\": \"{{materialId}}\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"isPacked\": false,\n  \"mode\": \"SCHEDULED\",\n  \"dueDate\": \"2026-11-15\",\n  \"requestedQty\": 12000,\n  \"requestedQtyUomId\": \"{{uomId}}\",\n  \"orderValue\": 45000,\n  \"notes\": \"ERP stand-in create\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders",
+            "description": "201 { id: ORD#####, orderNo, status: OPEN, versionNo }. Needs PUBLISHED material / uom / tank. Change {{runSuffix}} if 409 duplicate."
+          }
+        },
+        {
+          "name": "04 GET list OPEN PENDING",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/orders?status=OPEN&qualOutcome=PENDING&mode=SCHEDULED&page=1&pageSize=20&sort=dueDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "orders"],
+              "query": [
+                { "key": "status", "value": "OPEN" },
+                { "key": "qualOutcome", "value": "PENDING" },
+                { "key": "mode", "value": "SCHEDULED" },
+                { "key": "dueFrom", "value": "2026-11-01", "disabled": true },
+                { "key": "dueTo", "value": "2026-12-31", "disabled": true },
+                { "key": "q", "value": "ERP-ORD", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "sort", "value": "dueDate" }
+              ]
+            },
+            "description": "Filters: status, qualOutcome, mode, dueFrom, dueTo, q, page, pageSize, sort (orderNo|dueDate|status|qualOutcome|updatedAt)."
+          }
+        },
+        {
+          "name": "05 GET by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{orderId}}",
+            "description": "Full order incl. qualOutcome PENDING until M02 runs."
+          }
+        },
+        {
+          "name": "06 PATCH update qty",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNo\": \"ERP-ORD-{{runSuffix}}-1001\",\n  \"externalId\": \"SAP-{{runSuffix}}-1001\",\n  \"customerCode\": \"C-100\",\n  \"customerName\": \"Demo Customer\",\n  \"materialId\": \"{{materialId}}\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"shippingPointId\": \"{{shippingPointId}}\",\n  \"divisionId\": \"{{divisionId}}\",\n  \"isPacked\": false,\n  \"mode\": \"SCHEDULED\",\n  \"dueDate\": \"2026-11-16\",\n  \"requestedQty\": 12500,\n  \"requestedQtyUomId\": \"{{uomId}}\",\n  \"orderValue\": 46000,\n  \"notes\": \"qty amended\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{orderId}}",
+            "description": "Optimistic lock via versionNo. 409 STALE_VERSION / LOCKED if not OPEN+PENDING."
+          }
+        },
+        {
+          "name": "07 GET versions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{orderId}}/versions",
+            "description": "Version snapshots after create/update."
+          }
+        },
+        {
+          "name": "08 GET audit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{orderId}}/audit",
+            "description": "CREATE / UPDATE / CANCEL / DELETE actions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Packed order",
+      "item": [
+        {
+          "name": "09 POST create packed (no tank)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.id) pm.collectionVariables.set('packedOrderId', json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNo\": \"ERP-ORD-{{runSuffix}}-PACK\",\n  \"externalId\": \"SAP-{{runSuffix}}-PACK\",\n  \"customerCode\": \"C-PACK\",\n  \"customerName\": \"Packed Customer\",\n  \"materialId\": \"{{materialId}}\",\n  \"isPacked\": true,\n  \"mode\": \"WILL_CALL\",\n  \"dueDate\": \"2026-11-18\",\n  \"requestedQty\": 40,\n  \"requestedQtyUomId\": \"{{uomId}}\",\n  \"orderValue\": 1200,\n  \"notes\": \"packed — no storage tank\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders",
+            "description": "isPacked true → omit storageTankId. Including a tank returns 400."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. CSV / JSON import + export",
+      "item": [
+        {
+          "name": "10 POST import — JSON rows (codes)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const first = (json.accepted || [])[0];",
+                  "  if (first && first.id) pm.collectionVariables.set('orderId', first.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": [\n    {\n      \"orderNo\": \"ERP-CSV-{{runSuffix}}-2001\",\n      \"externalId\": \"SAP-CSV-{{runSuffix}}-2001\",\n      \"customerCode\": \"C-200\",\n      \"customerName\": \"CSV Customer\",\n      \"materialCode\": \"{{materialCode}}\",\n      \"storageTankCode\": \"{{storageTankCode}}\",\n      \"uomCode\": \"{{uomCode}}\",\n      \"shippingPointCode\": \"{{shippingPointCode}}\",\n      \"isPacked\": false,\n      \"mode\": \"WILL_CALL\",\n      \"dueDate\": \"2026-11-20\",\n      \"requestedQty\": 8000,\n      \"orderValue\": 22000,\n      \"notes\": \"JSON import with codes\"\n    },\n    {\n      \"orderNo\": \"ERP-CSV-BAD\",\n      \"customerCode\": \"C-X\",\n      \"materialCode\": \"DOES-NOT-EXIST\",\n      \"uomCode\": \"{{uomCode}}\",\n      \"isPacked\": true,\n      \"mode\": \"FORECAST\",\n      \"dueDate\": \"2026-11-21\",\n      \"requestedQty\": 10\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders/import",
+            "description": "Uses codes saved by request 02. Row 1 accepted; row 2 rejected (bad materialCode). Upserts if externalId/orderNo already exists."
+          }
+        },
+        {
+          "name": "11 POST import — upsert same externalId",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rows\": [\n    {\n      \"orderNo\": \"ERP-CSV-{{runSuffix}}-2001\",\n      \"externalId\": \"SAP-CSV-{{runSuffix}}-2001\",\n      \"customerCode\": \"C-200\",\n      \"customerName\": \"CSV Customer UPDATED\",\n      \"materialCode\": \"{{materialCode}}\",\n      \"storageTankCode\": \"{{storageTankCode}}\",\n      \"uomCode\": \"{{uomCode}}\",\n      \"isPacked\": false,\n      \"mode\": \"WILL_CALL\",\n      \"dueDate\": \"2026-11-22\",\n      \"requestedQty\": 8500,\n      \"orderValue\": 23000,\n      \"notes\": \"upsert by externalId\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders/import",
+            "description": "Same externalId as 10 → accepted[].action UPDATE."
+          }
+        },
+        {
+          "name": "12 POST import — CSV body (ids)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "text/csv" }],
+            "body": {
+              "mode": "raw",
+              "raw": "orderNo,externalId,customerCode,customerName,materialId,storageTankId,requestedQtyUomId,isPacked,mode,dueDate,requestedQty,orderValue,notes\nERP-CSV-{{runSuffix}}-2002,SAP-CSV-{{runSuffix}}-2002,C-201,CSV Two,{{materialId}},{{storageTankId}},{{uomId}},false,FORECAST,2026-11-21,5000,15000,csv body"
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders/import",
+            "description": "text/csv. Header names match API fields (camelCase)."
+          }
+        },
+        {
+          "name": "13 GET export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/orders/export",
+            "description": "Attachment orders.csv — up to 5000 open rows."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Cancel + soft delete",
+      "item": [
+        {
+          "name": "14 POST cancel",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer cancelled\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{orderId}}/cancel",
+            "description": "Only OPEN → CANCELLED. reason required. Second cancel → 409."
+          }
+        },
+        {
+          "name": "15 DELETE soft delete packed",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{packedOrderId}}",
+            "description": "Soft delete. GET by id afterwards → 404."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Validation samples",
+      "item": [
+        {
+          "name": "16 POST — missing tank on bulk (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNo\": \"ERP-BAD-TANK\",\n  \"customerCode\": \"C-X\",\n  \"materialId\": \"{{materialId}}\",\n  \"isPacked\": false,\n  \"mode\": \"SCHEDULED\",\n  \"dueDate\": \"2026-11-15\",\n  \"requestedQty\": 100,\n  \"requestedQtyUomId\": \"{{uomId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders",
+            "description": "Expected 400: storageTankId is required when isPacked is false."
+          }
+        },
+        {
+          "name": "17 POST — invalid mode (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNo\": \"ERP-BAD-MODE\",\n  \"customerCode\": \"C-X\",\n  \"materialId\": \"{{materialId}}\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"isPacked\": false,\n  \"mode\": \"EXPRESS\",\n  \"dueDate\": \"2026-11-15\",\n  \"requestedQty\": 100,\n  \"requestedQtyUomId\": \"{{uomId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders",
+            "description": "Expected 400: mode must be FORECAST, MONITOR, SCHEDULED, or WILL_CALL."
+          }
+        },
+        {
+          "name": "18 PATCH cancelled order (409)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderNo\": \"ERP-ORD-{{runSuffix}}-1001\",\n  \"externalId\": \"SAP-{{runSuffix}}-1001\",\n  \"customerCode\": \"C-100\",\n  \"materialId\": \"{{materialId}}\",\n  \"storageTankId\": \"{{storageTankId}}\",\n  \"isPacked\": false,\n  \"mode\": \"SCHEDULED\",\n  \"dueDate\": \"2026-11-16\",\n  \"requestedQty\": 1,\n  \"requestedQtyUomId\": \"{{uomId}}\",\n  \"orderValue\": 1,\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/orders/{{orderId}}",
+            "description": "After cancel (14): Expected 409 Only OPEN orders can be amended."
+          }
+        }
+      ]
+    }
+  ]
+}

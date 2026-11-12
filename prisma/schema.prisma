@@ -1647,3 +1647,79 @@ model HaulierAudit {
   @@map("haulier_audit")
   @@schema("branch")
 }
+
+/// Order Intake (pre-M02). Transactional — not a governed master.
+/// id stores the generated index (ORD00001). Applied via sql/branch_delivery_order.sql.
+/// Do not expose a UI. M02 will write qual_* columns later.
+model DeliveryOrder {
+  id                 String    @id
+  orderNo            String    @map("order_no")
+  externalId         String?   @map("external_id")
+  customerCode       String    @map("customer_code")
+  customerName       String?   @map("customer_name")
+  materialId         String    @map("material_id")
+  storageTankId      String?   @map("storage_tank_id")
+  shippingPointId    String?   @map("shipping_point_id")
+  divisionId         String?   @map("division_id")
+  isPacked           Boolean   @default(false) @map("is_packed")
+  mode               String
+  dueDate            DateTime  @map("due_date") @db.Date
+  requestedQty       Decimal   @map("requested_qty") @db.Decimal(14, 3)
+  requestedQtyUomId  String    @map("requested_qty_uom_id")
+  qualifiedQty       Decimal?  @map("qualified_qty") @db.Decimal(14, 3)
+  qualifiedQtyUomId  String?   @map("qualified_qty_uom_id")
+  computedUllage     Decimal?  @map("computed_ullage") @db.Decimal(14, 3)
+  computedUllageUomId String?  @map("computed_ullage_uom_id")
+  orderValue         Decimal   @default(0) @map("order_value") @db.Decimal(18, 2)
+  status             String    @default("OPEN")
+  qualOutcome        String    @default("PENDING") @map("qual_outcome")
+  qualMode           String?   @map("qual_mode")
+  qualReasonCode     String?   @map("qual_reason_code")
+  qualReasonText     String?   @map("qual_reason_text")
+  qualDecidedAt      DateTime? @map("qual_decided_at") @db.Timestamptz(6)
+  qualDecidedBy      String?   @map("qual_decided_by")
+  notes              String?
+  versionNo          Int       @default(1) @map("version_no")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy          String?   @map("created_by")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String?   @map("updated_by")
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  versions DeliveryOrderVersion[]
+  audits   DeliveryOrderAudit[]
+
+  @@map("delivery_order")
+  @@schema("branch")
+}
+
+model DeliveryOrderVersion {
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  deliveryOrderId String   @map("delivery_order_id")
+  versionNo       Int      @map("version_no")
+  snapshot        Json
+  recordedAt      DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  recordedBy      String?  @map("recorded_by")
+
+  order DeliveryOrder @relation(fields: [deliveryOrderId], references: [id])
+
+  @@unique([deliveryOrderId, versionNo], map: "delivery_order_version_udx")
+  @@map("delivery_order_version")
+  @@schema("branch")
+}
+
+model DeliveryOrderAudit {
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  deliveryOrderId String   @map("delivery_order_id")
+  action          String
+  actor           String?
+  note            String?
+  payload         Json?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order DeliveryOrder @relation(fields: [deliveryOrderId], references: [id])
+
+  @@map("delivery_order_audit")
+  @@schema("branch")
+}
+  
