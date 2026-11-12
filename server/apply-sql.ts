@@ -60,6 +60,7 @@ async function main() {
     "branch_driver.sql",
     "branch_dg_restriction_zone.sql",
     "branch_delivery_order.sql",
+    "branch_order_qualification.sql",
   ];
   const pool = createAppPool();
   try {

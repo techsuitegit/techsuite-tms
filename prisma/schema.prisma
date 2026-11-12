@@ -1722,4 +1722,101 @@ model DeliveryOrderAudit {
   @@map("delivery_order_audit")
   @@schema("branch")
 }
+
+/// M02 tank reading stub until WBS 2.16 / M08 owns readings. Applied via sql/branch_order_qualification.sql.
+model TankReadingSnapshot {
+  storageTankId   String   @id @map("storage_tank_id")
+  usableCapacity  Decimal  @map("usable_capacity") @db.Decimal(14, 3)
+  targetFillPct   Decimal  @map("target_fill_pct") @db.Decimal(5, 4)
+  levelPct        Decimal  @map("level_pct") @db.Decimal(5, 4)
+  deadStock       Decimal  @default(0) @map("dead_stock") @db.Decimal(14, 3)
+  readingSource   String   @map("reading_source")
+  levelAsOf       DateTime? @map("level_as_of") @db.Timestamptz(6)
+  uomId           String   @map("uom_id")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?  @map("updated_by")
+
+  @@map("tank_reading_snapshot")
+  @@schema("branch")
+}
+
+/// M02 append-only decision ledger.
+model OrderQualificationDecision {
+  id                        String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  orderId                   String    @map("order_id")
+  runId                     String?   @map("run_id")
+  decisionSource            String    @map("decision_source")
+  outcome                   String
+  gateReached               Int       @map("gate_reached")
+  failedGate                Int?      @map("failed_gate")
+  reasonCode                String    @map("reason_code")
+  reasonText                String    @map("reason_text")
+  inputUsableCapacity       Decimal?  @map("input_usable_capacity") @db.Decimal(14, 3)
+  inputTargetFillPct        Decimal?  @map("input_target_fill_pct") @db.Decimal(5, 4)
+  inputLevelPct             Decimal?  @map("input_level_pct") @db.Decimal(5, 4)
+  inputDeadStock            Decimal?  @map("input_dead_stock") @db.Decimal(14, 3)
+  inputReadingSource        String?   @map("input_reading_source")
+  inputReadingAgeHours      Decimal?  @map("input_reading_age_hours") @db.Decimal(6, 2)
+  inputRequestedQty         Decimal   @map("input_requested_qty") @db.Decimal(14, 3)
+  computedUllage            Decimal?  @map("computed_ullage") @db.Decimal(14, 3)
+  computedRunOutDays        Decimal?  @map("computed_run_out_days") @db.Decimal(5, 1)
+  computedRiskBand          String?   @map("computed_risk_band")
+  uomId                     String    @map("uom_id")
+  stalenessThresholdHours   Int       @map("staleness_threshold_hours")
+  policyId                  String    @map("policy_id")
+  qualifiedQty              Decimal?  @map("qualified_qty") @db.Decimal(14, 3)
+  decidedAt                 DateTime  @default(now()) @map("decided_at") @db.Timestamptz(6)
+  decidedBy                 String?   @map("decided_by")
+  overrideId                String?   @map("override_id")
+  grounds                   String?
+  reference                 String?
+  idempotencyKey            String?   @map("idempotency_key")
+  auditEventWritten         Boolean   @default(false) @map("audit_event_written")
+
+  @@map("order_qualification_decision")
+  @@schema("branch")
+}
+
+model QualificationRun {
+  id                   String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  trigger              String
+  triggeredBy          String?   @map("triggered_by")
+  policyId             String    @map("policy_id")
+  startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt           DateTime? @map("finished_at") @db.Timestamptz(6)
+  scannedCount         Int       @default(0) @map("scanned_count")
+  skippedCount         Int       @default(0) @map("skipped_count")
+  qualifiedCount       Int       @default(0) @map("qualified_count")
+  flaggedCount         Int       @default(0) @map("flagged_count")
+  cannotEvaluateCount  Int       @default(0) @map("cannot_evaluate_count")
+  auditEventsWritten   Int       @default(0) @map("audit_events_written")
+  errorCount           Int       @default(0) @map("error_count")
+  status               String    @default("RUNNING")
+  scopeJson            Json?     @map("scope_json")
+
+  @@map("qualification_run")
+  @@schema("branch")
+}
+
+model QualificationPolicy {
+  id                        String    @id
+  code                      String
+  name                      String
+  stalenessThresholdHours   Int       @default(24) @map("staleness_threshold_hours")
+  ullageFormula             String    @default("USABLE_X_TARGET_MINUS_LEVEL") @map("ullage_formula")
+  minEvaluableUllage        Decimal?  @map("min_evaluable_ullage") @db.Decimal(14, 3)
+  overrideReviewDays        Int       @default(30) @map("override_review_days")
+  status                    String    @default("PUBLISHED")
+  versionNo                 Int       @default(1) @map("version_no")
+  validFrom                 DateTime  @map("valid_from") @db.Date
+  validTo                   DateTime? @map("valid_to") @db.Date
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy                 String?   @map("created_by")
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy                 String?   @map("updated_by")
+  deletedAt                 DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("qualification_policy")
+  @@schema("branch")
+}
   

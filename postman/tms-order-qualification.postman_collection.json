@@ -1,0 +1,440 @@
+{
+  "info": {
+    "_postman_id": "b22d0f8e-m02-4b19-9f01-tms-qual",
+    "name": "TMS — M02 Order Qualification",
+    "description": "M02 Order Qualification — Node port **3001**, No UI.\n\nAnswers: can this qty fit that tank on that date?\n\n## Gates (stop at first fail)\n0 Scope — skip MANUAL / already QUALIFIED|REJECTED\n1 Reading source — NONE → CANNOT_EVALUATE\n2 Freshness — age > policy hours → CANNOT_EVALUATE\n3 Capacity — requested ≤ ullage → QUALIFIED else FLAGGED\n\n**Ullage** = usable × (target − level). Example: 20000 × (0.85 − 0.45) = 8000. Exact 8000 qualifies (`≤`). Engine never auto-rejects (D-16). Manual decision sets `qualMode=MANUAL` (D-17).\n\n## Setup\n1. `npm run api:sql` then restart `npm run api`.\n2. Set `login` / `password`.\n3. Run **0. Login + seed parents** (saves token, tankId, uomId from lookups).\n4. Need OPEN delivery orders (use Order Intake collection first).\n5. **02 PUT tank reading** then **06 Run engine**.\n\n## Base path\n`/api/v1/ops/qualification/...`\n\nFractions for targetFillPct / levelPct are **0..1** (not 85 / 45).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "orderId", "value": "" },
+    { "key": "flaggedOrderId", "value": "" },
+    { "key": "tankId", "value": "" },
+    { "key": "uomId", "value": "" },
+    { "key": "runId", "value": "" },
+    { "key": "versionNo", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "0. Login + seed parents",
+      "item": [
+        {
+          "name": "00 Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "200 { ok: true, name: tms-api }"
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  if (token) pm.collectionVariables.set('token', token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Saves {{token}}. enviroment spelling is intentional."
+          }
+        },
+        {
+          "name": "02 GET order lookups — save tank + uom",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) return;",
+                  "const json = pm.response.json() || {};",
+                  "const tank = (json.storageTanks || [])[0];",
+                  "const uom = (json.uoms || [])[0];",
+                  "if (tank && tank.id) pm.collectionVariables.set('tankId', tank.id);",
+                  "if (uom && uom.id) pm.collectionVariables.set('uomId', uom.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/lookups/orders",
+            "description": "Reuses Order Intake lookups. Saves first PUBLISHED storageTankId + uomId."
+          }
+        },
+        {
+          "name": "03 GET policy",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/qualification/policy",
+            "description": "Published policy — stalenessThresholdHours (default 24)."
+          }
+        },
+        {
+          "name": "04 GET reason codes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/qualification/reason-codes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "qualification", "reason-codes"],
+              "query": [
+                { "key": "appliesTo", "value": "PLANNER_QUALIFY", "disabled": true }
+              ]
+            },
+            "description": "ENGINE | PLANNER_QUALIFY | PLANNER_REJECT catalogue."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Tank reading stub",
+      "item": [
+        {
+          "name": "05 PUT reading — fit case (ullage 8000)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usableCapacity\": 20000,\n  \"targetFillPct\": 0.85,\n  \"levelPct\": 0.45,\n  \"deadStock\": 0,\n  \"readingSource\": \"TEL\",\n  \"uomId\": \"{{uomId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/tank-readings/{{tankId}}",
+            "description": "20000 × (0.85 − 0.45) = 8000 L ullage. Fractions 0..1. levelAsOf defaults to now (fresh)."
+          }
+        },
+        {
+          "name": "05b PUT reading — NONE (cannot evaluate)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usableCapacity\": 20000,\n  \"targetFillPct\": 0.85,\n  \"levelPct\": 0.45,\n  \"deadStock\": 0,\n  \"readingSource\": \"NONE\",\n  \"uomId\": \"{{uomId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/tank-readings/{{tankId}}",
+            "description": "Gate 1 fail. Re-run 05 afterwards to restore TEL for happy path."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Queue + engine run",
+      "item": [
+        {
+          "name": "06 GET qualification queue",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) return;",
+                  "const json = pm.response.json();",
+                  "const items = json.items || [];",
+                  "const row = items.find((r) => r.storageTankId) || items[0];",
+                  "if (row && row.id) {",
+                  "  pm.collectionVariables.set('orderId', row.id);",
+                  "  if (row.versionNo != null) pm.collectionVariables.set('versionNo', String(row.versionNo));",
+                  "  if (row.storageTankId) pm.collectionVariables.set('tankId', row.storageTankId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/qualification/orders?page=1&pageSize=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "qualification", "orders"],
+              "query": [
+                { "key": "outcome", "value": "PENDING", "disabled": true },
+                { "key": "outcome", "value": "FLAGGED", "disabled": true },
+                { "key": "mode", "value": "SCHEDULED", "disabled": true },
+                { "key": "q", "value": "ERP", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" }
+              ]
+            },
+            "description": "Returns items + KPI counts (autoQualified, flagged, cannotEvaluate, manual). Saves orderId/tankId/versionNo."
+          }
+        },
+        {
+          "name": "07 GET order detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.versionNo != null) pm.collectionVariables.set('versionNo', String(json.versionNo));",
+                  "  if (json.storageTankId) pm.collectionVariables.set('tankId', json.storageTankId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}",
+            "description": "Includes tankSnapshot, runOutDays, riskBand, isStale, canEvaluate."
+          }
+        },
+        {
+          "name": "08 POST evaluate one order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/evaluate",
+            "description": "Single-order path. 409 ALREADY_DECIDED if MANUAL or QUALIFIED/REJECTED."
+          }
+        },
+        {
+          "name": "09 POST run engine now",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.runId) pm.collectionVariables.set('runId', json.runId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trigger\": \"ON_DEMAND\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/runs",
+            "description": "Batch over in-scope OPEN orders. 409 RUN_IN_PROGRESS if another run is active. Response: scanned/skipped/qualified/flagged/cannotEvaluate/auditEventsWritten."
+          }
+        },
+        {
+          "name": "10 GET runs list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/qualification/runs?page=1&pageSize=20"
+          }
+        },
+        {
+          "name": "11 GET run by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/qualification/runs/{{runId}}",
+            "description": "{ run, decisions[] }"
+          }
+        },
+        {
+          "name": "12 GET decision history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/decisions",
+            "description": "Append-only ledger with frozen inputs (D-19)."
+          }
+        },
+        {
+          "name": "13 GET M03 qualified pool",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/qualification/pool",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "qualification", "pool"],
+              "query": [
+                { "key": "divisionId", "value": "", "disabled": true },
+                { "key": "dueBefore", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "QUALIFIED only; uses qualifiedQty. Unordered membership feed for M03."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Manual decision + qty amend",
+      "item": [
+        {
+          "name": "14 GET flagged queue — save id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) return;",
+                  "const items = pm.response.json().items || [];",
+                  "const row = items.find((r) => r.qualOutcome === 'FLAGGED') || items[0];",
+                  "if (row && row.id) {",
+                  "  pm.collectionVariables.set('flaggedOrderId', row.id);",
+                  "  pm.collectionVariables.set('orderId', row.id);",
+                  "  if (row.versionNo != null) pm.collectionVariables.set('versionNo', String(row.versionNo));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders?outcome=FLAGGED&page=1&pageSize=20"
+          }
+        },
+        {
+          "name": "15 POST manual qualify",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  // refresh version via follow-up GET if needed",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outcome\": \"QUALIFIED\",\n  \"qualifiedQty\": 11000,\n  \"reasonCode\": \"PLN_DRAWN_BEFORE_ARRIVAL\",\n  \"grounds\": \"Site confirmed by phone that the day shift will draw before arrival.\",\n  \"reference\": \"CALL-20261008-114\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/decision",
+            "description": "Requires qualify-style reason code. grounds ≥ 8, reference ≥ 3. Sets qualMode=MANUAL so engine skips forever (D-17). Refresh versionNo from GET 07/14 first."
+          }
+        },
+        {
+          "name": "16 PATCH amend qualified qty",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qualifiedQty\": 10500,\n  \"reason\": \"Planner reduced drop after customer call\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/quantity",
+            "description": "Separate ORDER_QTY_AMENDED audit (BE-10). Only on QUALIFIED. Update versionNo after 15."
+          }
+        },
+        {
+          "name": "17 POST manual reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outcome\": \"REJECTED\",\n  \"reasonCode\": \"PLN_INSUFFICIENT_REORDER\",\n  \"grounds\": \"Tank ullage too small for this drop; customer to re-order after next draw.\",\n  \"reference\": \"EMAIL-8841\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/decision",
+            "description": "No qualifiedQty on reject. Use a still-undecided order; refresh versionNo. Do not send after 15 on same order unless you reset."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Validation samples",
+      "item": [
+        {
+          "name": "18 POST decision — grounds too short (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outcome\": \"QUALIFIED\",\n  \"qualifiedQty\": 1000,\n  \"reasonCode\": \"PLN_SPLIT_AGREED\",\n  \"grounds\": \"short\",\n  \"reference\": \"ABC\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/decision",
+            "description": "Expected 400 GROUNDS_TOO_SHORT."
+          }
+        },
+        {
+          "name": "19 POST reject with qty (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"outcome\": \"REJECTED\",\n  \"qualifiedQty\": 1000,\n  \"reasonCode\": \"PLN_INSUFFICIENT_REORDER\",\n  \"grounds\": \"Customer asked to cancel this delivery for next week.\",\n  \"reference\": \"EMAIL-1\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/orders/{{orderId}}/decision",
+            "description": "Expected 400 QTY_ON_REJECTION."
+          }
+        },
+        {
+          "name": "20 PUT reading — percent not fraction (400)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usableCapacity\": 20000,\n  \"targetFillPct\": 85,\n  \"levelPct\": 45,\n  \"readingSource\": \"TEL\",\n  \"uomId\": \"{{uomId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/qualification/tank-readings/{{tankId}}",
+            "description": "Expected 400 — use 0.85 / 0.45, not 85 / 45."
+          }
+        }
+      ]
+    }
+  ]
+}
