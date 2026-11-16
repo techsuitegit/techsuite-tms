@@ -1678,6 +1678,8 @@ model DeliveryOrder {
   qualReasonText     String?   @map("qual_reason_text")
   qualDecidedAt      DateTime? @map("qual_decided_at") @db.Timestamptz(6)
   qualDecidedBy      String?   @map("qual_decided_by")
+  rankPosition       Int?      @map("rank_position")
+  rankOverrideId     String?   @map("rank_override_id")
   notes              String?
   versionNo          Int       @default(1) @map("version_no")
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1742,7 +1744,7 @@ model TankReadingSnapshot {
 
 /// M02 append-only decision ledger.
 model OrderQualificationDecision {
-  id                        String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id                        String    @id
   orderId                   String    @map("order_id")
   runId                     String?   @map("run_id")
   decisionSource            String    @map("decision_source")
@@ -1817,6 +1819,141 @@ model QualificationPolicy {
   deletedAt                 DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   @@map("qualification_policy")
+  @@schema("branch")
+}
+
+/// M03 Ranking — applied via sql/branch_ranking.sql (not Prisma migrate).
+model RankingWeightSet {
+  id                String    @id
+  code              String
+  name              String
+  divisionId        String?   @map("division_id")
+  orderingStrategy  String    @default("ADDITIVE") @map("ordering_strategy")
+  tieBreak          String    @default("RUN_OUT_ASC") @map("tie_break")
+  totalWeightCheck  Int       @default(100) @map("total_weight_check")
+  notes             String?
+  status            String    @default("PUBLISHED")
+  versionNo         Int       @default(1) @map("version_no")
+  validFrom         DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo           DateTime? @map("valid_to") @db.Date
+  reason            String    @default("New record")
+  changeNote        String?   @map("change_note")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy         String?   @map("created_by")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy         String?   @map("updated_by")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  components RankingWeightComponent[]
+
+  @@map("ranking_weight_set")
+  @@schema("branch")
+}
+
+model RankingWeightComponent {
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  weightSetId   String   @map("weight_set_id")
+  componentCode String   @map("component_code")
+  weightMax     Int      @map("weight_max")
+  sequence      Int
+  caption       String
+  decayPerDay   Decimal? @map("decay_per_day") @db.Decimal(6, 3)
+  valueDivisor  Decimal? @map("value_divisor") @db.Decimal(14, 2)
+  sizeDivisor   Decimal? @map("size_divisor") @db.Decimal(14, 4)
+  sizeUomCode   String?  @map("size_uom_code")
+  modeScores    Json?    @map("mode_scores")
+  isEnabled     Boolean  @default(true) @map("is_enabled")
+
+  weightSet RankingWeightSet @relation(fields: [weightSetId], references: [id])
+
+  @@unique([weightSetId, componentCode], map: "ranking_wc_udx")
+  @@unique([weightSetId, sequence], map: "ranking_wc_seq_udx")
+  @@map("ranking_weight_component")
+  @@schema("branch")
+}
+
+model CustomerClass {
+  code                   String    @id
+  label                  String
+  scoreContribution      Int?      @map("score_contribution")
+  urgencyOutranksClass   Boolean?  @map("urgency_outranks_class")
+  definitionSource       String    @default("PLACEHOLDER") @map("definition_source")
+  notes                  String?
+  status                 String    @default("PUBLISHED")
+  versionNo              Int       @default(1) @map("version_no")
+  isActive               Boolean   @default(true) @map("is_active")
+  validFrom              DateTime  @default(now()) @map("valid_from") @db.Date
+  validTo                DateTime? @map("valid_to") @db.Date
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("customer_class")
+  @@schema("branch")
+}
+
+model RankingRun {
+  id                      String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  trigger                 String
+  triggeredBy             String?   @map("triggered_by")
+  qualificationRunId      String?   @map("qualification_run_id")
+  weightSetId             String    @map("weight_set_id")
+  weightSetVersionNo      Int       @map("weight_set_version_no")
+  orderingStrategy        String    @map("ordering_strategy")
+  divisionId              String?   @map("division_id")
+  poolSize                Int       @default(0) @map("pool_size")
+  excludedFlagged         Int       @default(0) @map("excluded_flagged")
+  excludedCannotEvaluate  Int       @default(0) @map("excluded_cannot_evaluate")
+  excludedOther           Int       @default(0) @map("excluded_other")
+  totalDemand             Decimal   @default(0) @map("total_demand") @db.Decimal(18, 3)
+  totalDemandUomCode      String?   @map("total_demand_uom_code")
+  fleetCapacityIndicator  Decimal?  @map("fleet_capacity_indicator") @db.Decimal(18, 3)
+  fallbackClassUsed       Int       @default(0) @map("fallback_class_used")
+  supersedesRunId         String?   @map("supersedes_run_id")
+  startedAt               DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt              DateTime? @map("finished_at") @db.Timestamptz(6)
+  status                  String    @default("RUNNING")
+  scopeJson               Json?     @map("scope_json")
+
+  @@map("ranking_run")
+  @@schema("branch")
+}
+
+/// Append-only score ledger (DB rules block UPDATE/DELETE).
+model OrderRankScore {
+  id                    String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  runId                 String   @map("run_id")
+  orderId               String   @map("order_id")
+  rankPosition          Int      @map("rank_position")
+  totalScore            Decimal  @map("total_score") @db.Decimal(5, 1)
+  riskScore             Decimal  @map("risk_score") @db.Decimal(5, 1)
+  valueScore            Decimal  @map("value_score") @db.Decimal(5, 1)
+  sizeScore             Decimal  @map("size_score") @db.Decimal(5, 1)
+  classScore            Decimal  @map("class_score") @db.Decimal(5, 1)
+  windowScore           Decimal  @map("window_score") @db.Decimal(5, 1)
+  inputRunOutDays       Decimal  @map("input_run_out_days") @db.Decimal(5, 1)
+  inputRiskBand         String   @map("input_risk_band")
+  inputOrderValue       Decimal  @map("input_order_value") @db.Decimal(18, 2)
+  inputQualifiedQty     Decimal  @map("input_qualified_qty") @db.Decimal(14, 3)
+  inputQtyUomId         String   @map("input_qty_uom_id")
+  inputNormalisedQty    Decimal  @map("input_normalised_qty") @db.Decimal(14, 3)
+  inputCustomerClass    String?  @map("input_customer_class")
+  inputCustomerSegment  String?  @map("input_customer_segment")
+  classSource           String   @map("class_source")
+  inputMode             String   @map("input_mode")
+  weightSetId           String   @map("weight_set_id")
+  weightSetVersionNo    Int      @map("weight_set_version_no")
+  orderingStrategy      String   @map("ordering_strategy")
+  isPacked              Boolean  @map("is_packed")
+  rankSource            String   @default("ENGINE") @map("rank_source")
+  overrideId            String?  @map("override_id")
+  grounds               String?
+  reference             String?
+  scoredAt              DateTime @default(now()) @map("scored_at") @db.Timestamptz(6)
+
+  @@unique([runId, orderId], map: "ors_run_order_udx")
+  @@unique([runId, rankPosition], map: "ors_run_rank_udx")
+  @@map("order_rank_score")
   @@schema("branch")
 }
   

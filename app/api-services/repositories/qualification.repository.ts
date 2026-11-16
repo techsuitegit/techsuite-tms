@@ -344,6 +344,7 @@ export class QualificationRepository {
   async insertDecision(
     client: PoolClient,
     args: {
+      id: string;
       orderId: string;
       runId: string | null;
       source: "ENGINE" | "PLANNER";
@@ -372,7 +373,7 @@ export class QualificationRepository {
     const r = args.result;
     const result = await client.query(
       `insert into branch.order_qualification_decision (
-         order_id, run_id, decision_source, outcome, gate_reached, failed_gate,
+         id, order_id, run_id, decision_source, outcome, gate_reached, failed_gate,
          reason_code, reason_text,
          input_usable_capacity, input_target_fill_pct, input_level_pct, input_dead_stock,
          input_reading_source, input_reading_age_hours, input_requested_qty,
@@ -380,9 +381,10 @@ export class QualificationRepository {
          uom_id, staleness_threshold_hours, policy_id, qualified_qty,
          decided_by, override_id, grounds, reference, audit_event_written
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28
        ) returning id, decided_at as "decidedAt"`,
       [
+        args.id,
         args.orderId,
         args.runId,
         args.source,

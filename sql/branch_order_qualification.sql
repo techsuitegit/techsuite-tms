@@ -170,7 +170,7 @@ create index if not exists qualification_run_started_idx
 -- Decision ledger (append-only by convention + revoke note in comments)
 -- ---------------------------------------------------------------------------
 create table if not exists branch.order_qualification_decision (
-  id                          text primary key default (gen_random_uuid())::text,
+  id                          text primary key,
   order_id                    text not null references branch.delivery_order (id) on delete restrict,
   run_id                      text references branch.qualification_run (id) on delete restrict,
   decision_source             text not null,
@@ -243,10 +243,15 @@ create index if not exists ix_delivery_order_qualified_pool
   on branch.delivery_order (division_id, due_date)
   where qual_outcome = 'QUALIFIED' and deleted_at is null and status = 'OPEN';
 
+-- Decision ledger ids are assigned by app via gindexmst (QDEC), not gen_random_uuid.
+alter table branch.order_qualification_decision
+  alter column id drop default;
+
 insert into public.gindexmst (code, name, noprefix, nolength, lastno, padding)
 values
   ('QPOL', 'Qualification Policy', 'QPOL', 5, 1, true),
   ('PDR', 'Product Draw Rate', 'PDR', 5, 5, true),
   ('QRUN', 'Qualification Run', 'QRUN', 5, 0, true),
-  ('QOVR', 'Qualification Override', 'QOVR', 5, 0, true)
+  ('QOVR', 'Qualification Override', 'QOVR', 5, 0, true),
+  ('QDEC', 'Qualification Decision', 'QDEC', 5, 0, true)
 on conflict (code) do nothing;

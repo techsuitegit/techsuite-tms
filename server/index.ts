@@ -16,6 +16,7 @@ import { DriverController } from "@/app/api-services/controllers/driver.controll
 import { DgRestrictionController } from "@/app/api-services/controllers/dg-restriction.controller";
 import { OrderController } from "@/app/api-services/controllers/order.controller";
 import { QualificationController } from "@/app/api-services/controllers/qualification.controller";
+import { RankingController } from "@/app/api-services/controllers/ranking.controller";
 import { TelemetryDeviceController } from "@/app/api-services/controllers/telemetry-device.controller";
 import { HaulierController } from "@/app/api-services/controllers/haulier.controller";
 import { ZoneController } from "@/app/api-services/controllers/zone.controller";
@@ -40,6 +41,7 @@ import { DriverRepository } from "@/app/api-services/repositories/driver.reposit
 import { DgRestrictionRepository } from "@/app/api-services/repositories/dg-restriction.repository";
 import { OrderRepository } from "@/app/api-services/repositories/order.repository";
 import { QualificationRepository } from "@/app/api-services/repositories/qualification.repository";
+import { RankingRepository } from "@/app/api-services/repositories/ranking.repository";
 import { TelemetryDeviceRepository } from "@/app/api-services/repositories/telemetry-device.repository";
 import { HaulierRepository } from "@/app/api-services/repositories/haulier.repository";
 import { ZoneRepository } from "@/app/api-services/repositories/zone.repository";
@@ -62,6 +64,7 @@ import { DriverRoutes } from "@/app/api-services/routes/driver.routes";
 import { DgRestrictionRoutes } from "@/app/api-services/routes/dg-restriction.routes";
 import { OrderRoutes } from "@/app/api-services/routes/order.routes";
 import { QualificationRoutes } from "@/app/api-services/routes/qualification.routes";
+import { RankingRoutes } from "@/app/api-services/routes/ranking.routes";
 import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-device.routes";
 import { HaulierRoutes } from "@/app/api-services/routes/haulier.routes";
 import { ZoneRoutes } from "@/app/api-services/routes/zone.routes";
@@ -85,6 +88,7 @@ import { DriverService } from "@/app/api-services/services/driver.service";
 import { DgRestrictionService } from "@/app/api-services/services/dg-restriction.service";
 import { OrderService } from "@/app/api-services/services/order.service";
 import { QualificationService } from "@/app/api-services/services/qualification.service";
+import { RankingService } from "@/app/api-services/services/ranking.service";
 import { TelemetryDeviceService } from "@/app/api-services/services/telemetry-device.service";
 import { HaulierService } from "@/app/api-services/services/haulier.service";
 import { ZoneService } from "@/app/api-services/services/zone.service";
@@ -135,8 +139,12 @@ const dgRestrictionController = new DgRestrictionController(
 const orderController = new OrderController(
   new OrderService(new OrderRepository(pool), new indexgenerater(pool)),
 );
+const qualificationRepository = new QualificationRepository(pool);
 const qualificationController = new QualificationController(
-  new QualificationService(new QualificationRepository(pool), new indexgenerater(pool)),
+  new QualificationService(qualificationRepository, new indexgenerater(pool)),
+);
+const rankingController = new RankingController(
+  new RankingService(new RankingRepository(pool), qualificationRepository, new indexgenerater(pool)),
 );
 const telemetryDeviceController = new TelemetryDeviceController(
   new TelemetryDeviceService(new TelemetryDeviceRepository(pool), new indexgenerater(pool)),
@@ -175,6 +183,7 @@ const routes = [
   ...new DgRestrictionRoutes(dgRestrictionController).register(),
   ...new OrderRoutes(orderController).register(),
   ...new QualificationRoutes(qualificationController).register(),
+  ...new RankingRoutes(rankingController).register(),
   ...new TelemetryDeviceRoutes(telemetryDeviceController).register(),
   ...new HaulierRoutes(haulierController).register(),
   ...new ZoneRoutes(zoneController).register(),

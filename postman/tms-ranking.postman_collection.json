@@ -1,0 +1,628 @@
+{
+  "info": {
+    "_postman_id": "b33e0f8e-m03-4c19-9f01-tms-rank",
+    "name": "TMS — M03 Ranking & Prioritisation",
+    "description": "M03 Ranking & Prioritisation — Node port **3001**, No UI.\n\nAnswers: **in what order should we deliver the qualified work?**\n\n## Pool\nOnly `qual_outcome = QUALIFIED` with non-null `qualified_qty`. Never FLAGGED / PENDING / CANNOT_EVALUATE.\n\n## Score (seed weights 40/25/15/12/8)\n1. RUN_OUT_RISK — `max(0, weight − days × decay)` (seed: 40 − days×7)\n2. ORDER_VALUE — `min(weight, value / divisor)` (seed: /60000)\n3. DROP_SIZE — `min(weight, normalisedQty / divisor)` (seed: /2 in KL)\n4. CUSTOMER_CLASS — catalogue contribution, else I-001 segment fallback (Retail/Port/other)\n5. WINDOW_PRESSURE — mode lookup (WILL_CALL 8, MONITOR 6, SCHEDULED/FORECAST 3)\n\n## Ordering\n- **ADDITIVE** (default publish) — sort by total desc\n- **BAND_THEN_SCORE** — critical → high → medium → low, then total inside band\n\n## Setup\n1. `npm run api:sql` then restart `npm run api`.\n2. Set collection variables `login` and `password`.\n3. Run **Order Intake** + **M02 Qualification** first so QUALIFIED pool is non-empty.\n4. Run folder **0. Login** (saves `token`).\n5. Port **3001**, not 3000. No trailing slash.\n\n## Base path\n`/api/v1/ops/ranking/...`\n\n## Variables saved by scripts\n`token`, `weightSetId`, `runId`, `orderId`, `reorderOrderId`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "weightSetId", "value": "RWS00001" },
+    { "key": "runId", "value": "" },
+    { "key": "supersededRunId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "reorderOrderId", "value": "" },
+    { "key": "divisionId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "00 Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('health ok', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.ok).to.eql(true);",
+                  "  pm.expect(j.name).to.eql('tms-api');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "200 `{ ok: true, name: \"tms-api\" }`"
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login returns token', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  pm.expect(token).to.be.a('string').and.not.empty;",
+                  "  pm.collectionVariables.set('token', token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Saves `{{token}}`. `enviroment` spelling is intentional."
+          }
+        },
+        {
+          "name": "02 GET M02 qualified pool (precheck)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('M02 pool reachable', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json() || {};",
+                  "const items = json.items || json || [];",
+                  "const list = Array.isArray(items) ? items : [];",
+                  "if (!list.length) {",
+                  "  console.warn('QUALIFIED pool empty — run M02 qualification first or ranking run returns poolSize 0');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/qualification/pool",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "qualification", "pool"],
+              "query": [
+                { "key": "divisionId", "value": "{{divisionId}}", "disabled": true },
+                { "key": "dueBefore", "value": "2026-12-31", "disabled": true }
+              ]
+            },
+            "description": "Membership feed from M02 (unordered). Ranking scores this set — empty pool → empty run."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Weight set + classes",
+      "item": [
+        {
+          "name": "10 GET weight-sets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('weight-sets 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.items).to.be.an('array');",
+                  "  pm.expect(json.items.length).to.be.above(0);",
+                  "});",
+                  "const items = (pm.response.json() || {}).items || [];",
+                  "const pub = items.find((i) => i.status === 'PUBLISHED') || items[0];",
+                  "if (pub && pub.id) pm.collectionVariables.set('weightSetId', pub.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/ranking/weight-sets?status=PUBLISHED",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "ranking", "weight-sets"],
+              "query": [
+                { "key": "status", "value": "PUBLISHED" },
+                { "key": "divisionId", "value": "{{divisionId}}", "disabled": true }
+              ]
+            },
+            "description": "Lists policy weight sets. Seed `RWS00001` / `WS-DEFAULT`. Saves `weightSetId`."
+          }
+        },
+        {
+          "name": "11 GET weight-set by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('weight-set has five components', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.components).to.be.an('array').with.lengthOf(5);",
+                  "  const risk = json.components.find((c) => c.componentCode === 'RUN_OUT_RISK');",
+                  "  pm.expect(risk).to.exist;",
+                  "  pm.expect(risk.zeroAtDays).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/ranking/weight-sets/{{weightSetId}}",
+            "description": "Full set + components. `zeroAtDays` on RUN_OUT_RISK ≈ 5.7 with seed 40/7."
+          }
+        },
+        {
+          "name": "12 GET customer-classes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('A1–A4 placeholders', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const items = pm.response.json().items || [];",
+                  "  pm.expect(items.length).to.eql(4);",
+                  "  items.forEach((r) => {",
+                  "    pm.expect(r.definitionSource).to.eql('PLACEHOLDER');",
+                  "    pm.expect(r.scoreContribution).to.eql(null);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/ranking/customer-classes",
+            "description": "I-001 open: A1–A4 PLACEHOLDER, `scoreContribution` null → segment fallback at score time."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Rank now",
+      "item": [
+        {
+          "name": "20 POST run — ADDITIVE (default)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ranking run completed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.run).to.exist;",
+                  "  pm.expect(json.run.status).to.eql('COMPLETED');",
+                  "  pm.expect(json.run.orderingStrategy).to.eql('ADDITIVE');",
+                  "  pm.expect(json.items).to.be.an('array');",
+                  "});",
+                  "const json = pm.response.json() || {};",
+                  "if (json.run && json.run.id) pm.collectionVariables.set('runId', json.run.id);",
+                  "const items = json.items || [];",
+                  "if (items[0] && items[0].orderId) {",
+                  "  pm.collectionVariables.set('orderId', items[0].orderId);",
+                  "}",
+                  "if (items.length > 1 && items[items.length - 1].orderId) {",
+                  "  pm.collectionVariables.set('reorderOrderId', items[items.length - 1].orderId);",
+                  "} else if (items[0] && items[0].orderId) {",
+                  "  pm.collectionVariables.set('reorderOrderId', items[0].orderId);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trigger\": \"ON_DEMAND\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/ranking/runs",
+            "description": "Scores QUALIFIED pool, writes run + append-only score rows in one transaction.\n\nOptional body:\n```json\n{\n  \"trigger\": \"ON_DEMAND\",\n  \"divisionId\": \"...\",\n  \"dueBefore\": \"2026-12-31\",\n  \"orderingStrategy\": \"ADDITIVE\"\n}\n```\n\n409 `RUN_IN_PROGRESS` · 409 `NO_PUBLISHED_WEIGHT_SET`\n\nSaves `runId`, `orderId` (rank #1), `reorderOrderId` (last / same)."
+          }
+        },
+        {
+          "name": "20b POST run — BAND_THEN_SCORE (optional)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('band strategy recorded on run', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.run.orderingStrategy).to.eql('BAND_THEN_SCORE');",
+                  "});",
+                  "const json = pm.response.json() || {};",
+                  "if (json.run && json.run.id) {",
+                  "  pm.collectionVariables.set('supersededRunId', pm.collectionVariables.get('runId') || '');",
+                  "  pm.collectionVariables.set('runId', json.run.id);",
+                  "}",
+                  "const items = json.items || [];",
+                  "if (items[0] && items[0].orderId) pm.collectionVariables.set('orderId', items[0].orderId);",
+                  "if (items.length > 1) pm.collectionVariables.set('reorderOrderId', items[items.length - 1].orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"trigger\": \"ON_DEMAND\",\n  \"orderingStrategy\": \"BAND_THEN_SCORE\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/ranking/runs",
+            "description": "Same pool, lexicographic band-first sort. Critical low-value can outrank comfortable high-value. Skip if you want to keep the ADDITIVE run current for reorder tests."
+          }
+        },
+        {
+          "name": "21 GET queue (current ranked)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('queue shape', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('items');",
+                  "  pm.expect(json).to.have.property('kpis');",
+                  "  pm.expect(json).to.have.property('run');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/ranking/queue?page=1&pageSize=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "ranking", "queue"],
+              "query": [
+                { "key": "divisionId", "value": "{{divisionId}}", "disabled": true },
+                { "key": "materialId", "value": "", "disabled": true },
+                { "key": "riskBand", "value": "critical", "disabled": true },
+                { "key": "mode", "value": "WILL_CALL", "disabled": true },
+                { "key": "dueBefore", "value": "2026-12-31", "disabled": true },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "50" }
+              ]
+            },
+            "description": "`{ items[], total, page, run, kpis }` from latest COMPLETED run. Filters optional."
+          }
+        },
+        {
+          "name": "22 GET runs list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('runs list', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().items).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/ranking/runs?page=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "ranking", "runs"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "23 GET run by id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('run detail with items', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.run.id).to.eql(pm.collectionVariables.get('runId'));",
+                  "  pm.expect(json.items).to.be.an('array');",
+                  "  if (json.items.length) {",
+                  "    const row = json.items[0];",
+                  "    pm.expect(row).to.have.property('totalScore');",
+                  "    pm.expect(row).to.have.property('components');",
+                  "    pm.expect(row.components).to.include.keys('risk','value','size','class','window');",
+                  "    pm.expect(row).to.have.property('classSource');",
+                  "    pm.expect(row).to.have.property('rankSource');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/ranking/runs/{{runId}}",
+            "description": "`{ run, items[] }` — frozen ranking as scored (append-only ledger)."
+          }
+        },
+        {
+          "name": "24 GET ordered pool feed (M04/M05)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ordered pool feed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('runId');",
+                  "  pm.expect(json).to.have.property('items');",
+                  "  pm.expect(json).to.have.property('total');",
+                  "  if (json.items.length) {",
+                  "    pm.expect(json.items[0]).to.include.keys('rankPosition','qualifiedQty','riskBand','rankSource');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ops/ranking/pool",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ops", "ranking", "pool"],
+              "query": [
+                { "key": "divisionId", "value": "{{divisionId}}", "disabled": true },
+                { "key": "dueBefore", "value": "2026-12-31", "disabled": true },
+                { "key": "runId", "value": "{{runId}}", "disabled": true },
+                { "key": "asOf", "value": "2026-11-16", "disabled": true }
+              ]
+            },
+            "description": "Ranked feed for downstream modules. Carries qualified qty, risk band, rank source. Optional `runId` / `asOf`."
+          }
+        },
+        {
+          "name": "25 GET order score history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('score history', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().scores).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/ranking/orders/{{orderId}}/scores",
+            "description": "One order across runs — append-only ledger rows."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Planner reorder",
+      "item": [
+        {
+          "name": "30 POST reorder — move to position 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reorder creates superseding run', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.run).to.exist;",
+                  "  pm.expect(json.run.trigger).to.eql('API');",
+                  "  pm.expect(json.run.supersedesRunId).to.be.ok;",
+                  "  pm.expect(json.override).to.exist;",
+                  "  pm.expect(json.override.status).to.eql('ACTIVE');",
+                  "  const moved = (json.items || []).find((i) => i.orderId === pm.collectionVariables.get('reorderOrderId'));",
+                  "  if (moved) {",
+                  "    pm.expect(moved.rankPosition).to.eql(1);",
+                  "    pm.expect(moved.rankSource).to.eql('PLANNER');",
+                  "  }",
+                  "});",
+                  "const json = pm.response.json() || {};",
+                  "if (json.run && json.run.id) {",
+                  "  pm.collectionVariables.set('supersededRunId', json.run.supersedesRunId || pm.collectionVariables.get('runId'));",
+                  "  pm.collectionVariables.set('runId', json.run.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{reorderOrderId}}\",\n  \"toPosition\": 1,\n  \"reasonCode\": \"PLANNER_PRIORITY\",\n  \"grounds\": \"Customer critical SLA window\",\n  \"reference\": \"TCK-1001\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/ranking/runs/{{runId}}/reorder",
+            "description": "Planner override. Writes a **new** run (trigger=API) that supersedes the current one; score ledger stays append-only.\n\nRules:\n- `grounds` ≥ 8 chars\n- `reference` ≥ 3 chars\n- `reasonCode` required\n- 409 `RUN_NOT_CURRENT` if a newer run already exists\n\nMoved row: `rankSource=PLANNER`. Later engine runs carry the pin forward (BE-09)."
+          }
+        },
+        {
+          "name": "31 POST reorder — grounds too short (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('grounds validation', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  const code = json.code || json.error || '';",
+                  "  pm.expect(String(code)).to.match(/GROUNDS|VALIDATION|grounds/i);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{reorderOrderId}}\",\n  \"toPosition\": 1,\n  \"reasonCode\": \"PLANNER_PRIORITY\",\n  \"grounds\": \"short\",\n  \"reference\": \"TCK-1001\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/ranking/runs/{{runId}}/reorder",
+            "description": "Expect 400 `GROUNDS_TOO_SHORT`."
+          }
+        },
+        {
+          "name": "32 POST reorder — superseded run (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const sid = pm.collectionVariables.get('supersededRunId');",
+                  "if (!sid) {",
+                  "  console.warn('skip: no supersededRunId — run 30 first');",
+                  "  return;",
+                  "}",
+                  "pm.test('RUN_NOT_CURRENT', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{reorderOrderId}}\",\n  \"toPosition\": 2,\n  \"reasonCode\": \"PLANNER_PRIORITY\",\n  \"grounds\": \"Trying to reorder an old run\",\n  \"reference\": \"TCK-1002\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/ranking/runs/{{supersededRunId}}/reorder",
+            "description": "After 30, reordering the **old** run id must 409 `RUN_NOT_CURRENT`."
+          }
+        },
+        {
+          "name": "33 GET queue after reorder",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/ranking/queue",
+            "description": "Current queue should show planner pin at position 1 with `rankSource=PLANNER`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Simulate",
+      "item": [
+        {
+          "name": "40 POST simulate weight set",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('simulate writes nothing', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.writesNothing).to.eql(true);",
+                  "  pm.expect(json.current).to.be.an('array');",
+                  "  pm.expect(json.proposed).to.be.an('array');",
+                  "  pm.expect(json.moved).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"divisionId\": null,\n  \"dueBefore\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/ranking/weight-sets/{{weightSetId}}/simulate",
+            "description": "Side-by-side current vs proposed ordering for a weight set. **Does not write** score rows or runs."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -239,7 +239,9 @@ export class QualificationService {
         },
       };
 
+      const decisionId = await this.nextDecisionId();
       const decision = await this.repo.insertDecision(client, {
+        id: decisionId,
         orderId,
         runId: null,
         source: "PLANNER",
@@ -422,7 +424,9 @@ export class QualificationService {
 
     const auditWritten = await this.shouldWriteAudit(String(order.id), result, String(order.qualOutcome));
 
+    const decisionId = await this.nextDecisionId();
     const decision = await this.repo.insertDecision(client, {
+      id: decisionId,
       orderId: String(order.id),
       runId,
       source: "ENGINE",
@@ -504,6 +508,12 @@ export class QualificationService {
   private async nextOverrideId() {
     const id = await this.index.getGindexMst("QOVR");
     await this.index.updateGindexMst("QOVR");
+    return id;
+  }
+
+  private async nextDecisionId() {
+    const id = await this.index.getGindexMst("QDEC");
+    await this.index.updateGindexMst("QDEC");
     return id;
   }
 }
