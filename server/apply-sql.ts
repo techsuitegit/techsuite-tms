@@ -62,6 +62,7 @@ async function main() {
     "branch_delivery_order.sql",
     "branch_order_qualification.sql",
     "branch_ranking.sql",
+    "branch_stock_reservation.sql",
   ];
   const pool = createAppPool();
   try {

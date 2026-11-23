@@ -1,0 +1,1027 @@
+{
+  "info": {
+    "_postman_id": "c44f1a90-m04-4d20-9a11-tms-rsv",
+    "name": "TMS — M04 Stock Reservation",
+    "description": "M04 Stock Reservation — Node port **3001**, No UI.\n\nAnswers: **which terminal racks this quantity of this product on this date, and is it committed?**\n\nStock is reserved only for a **CONFIRMED** trip on a **LIVE** plan. A DRAFT returns 409 `ROUTE_NOT_CONFIRMED`. A SCENARIO returns 409 `SCENARIO_PLAN` and writes nothing.\n\n## Outcomes\n- **RESERVED** — declared availability covers the qualified quantity (including an exact match)\n- **SHORT** — a declaration exists and this reservation exceeds what is left. Still committed. Never auto-cancelled.\n- **UNVERIFIED** — nobody has declared availability. Still committed. `availableQty` is null, not zero.\n\nThe quantity is `qualified_qty`. Conversion uses the UOM `factor_to_base` (KL is seeded). A terminal that does not rack the product is not a candidate. No terminal racks it → 422 `NO_RACKABLE_TERMINAL` and no reservation row.\n\nM05 route tables are not in this repo. The confirm call carries the trip (`routeId`, `planKind`, `plannedDeparture`, `orders`).\n\n## Setup\n1. `npm run api:sql` then restart `npm run api`.\n2. Set `login` and `password`.\n3. Set `orderId` to a QUALIFIED bulk order (not packed).\n4. Set `terminalId` and `materialId` to a shipping point and material the terminal racks (id or code).\n5. Set `toTerminalId` to a different terminal that also racks that product, for reassignment.\n6. Run folder **0. Login** (saves `token`).\n7. Port **3001**, not 3000. No trailing slash.\n\nEvery POST, PUT, and PATCH sends `Idempotency-Key`. A token with no permission list may reassign immediately. A token that has permissions but not `override.approve` gets 202 and the terminal does not move until **43 Countersign**.\n\n## Base paths\n`/api/v1/ops/trips/:tripId/reservations`\n`/api/v1/ops/reservations`\n`/api/v1/ops/terminal-stock`\n\n## Variables saved by scripts\n`token`, `reservationId`, `versionNo`, `qualifiedQty`, `reservedQtyUom`, `declareKey`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" },
+    { "key": "login", "value": "your.email@company.com" },
+    { "key": "password", "value": "" },
+    { "key": "producttype", "value": "TMS" },
+    { "key": "enviroment", "value": "DEV" },
+    { "key": "orderId", "value": "" },
+    { "key": "tripId", "value": "TRIP-M04-001" },
+    { "key": "routeId", "value": "ROUTE-M04-001" },
+    { "key": "planId", "value": "PLAN-M04-001" },
+    { "key": "tripId2", "value": "TRIP-M04-002" },
+    { "key": "routeId2", "value": "ROUTE-M04-002" },
+    { "key": "terminalId", "value": "" },
+    { "key": "toTerminalId", "value": "" },
+    { "key": "materialId", "value": "" },
+    { "key": "materialNotRacked", "value": "XP" },
+    { "key": "reservationId", "value": "" },
+    { "key": "versionNo", "value": "1" },
+    { "key": "qualifiedQty", "value": "" },
+    { "key": "reservedQtyUom", "value": "L" },
+    { "key": "reserveDate", "value": "2026-10-09" },
+    { "key": "declareKey", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Login",
+      "item": [
+        {
+          "name": "00 Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('health ok', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.ok).to.eql(true);",
+                  "  pm.expect(body.name).to.eql('tms-api');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "200 `{ ok: true, name: \"tms-api\" }`."
+          }
+        },
+        {
+          "name": "01 Login — get accessToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login returns token', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  const token = json.accessToken || json.access_token || json.token;",
+                  "  pm.expect(token).to.be.a('string').and.not.empty;",
+                  "  pm.collectionVariables.set('token', token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producttype\": \"{{producttype}}\",\n  \"enviroment\": \"{{enviroment}}\",\n  \"login\": \"{{login}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/jwt/login",
+            "description": "Saves `{{token}}`. `enviroment` spelling is intentional."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Policy and reason codes",
+      "item": [
+        {
+          "name": "10 GET policy in force",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('default policy', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.code).to.eql('RSV-DEFAULT');",
+                  "  pm.expect(body.releaseAtTerminalClose).to.eql(true);",
+                  "  pm.expect(body.resolvedVersionId).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/policy",
+            "description": "Seeded policy. Grace 4h, warning lead 2h, sweep 30 min, home-terminal bias 3.4 km. Figures are placeholders."
+          }
+        },
+        {
+          "name": "11 GET policy asOf",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('asOf resolves', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().resolvedVersionId).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/policy?asOf={{reserveDate}}",
+            "description": "400 `ASOF_INVALID` when `asOf` is not YYYY-MM-DD."
+          }
+        },
+        {
+          "name": "12 GET reason codes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('fourteen codes', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().items.length).to.eql(14);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/reason-codes",
+            "description": "Engine, reassign, release, short, and extend codes. There is no free-text Other."
+          }
+        },
+        {
+          "name": "13 GET reason codes — REASSIGN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reassign codes only', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const items = pm.response.json().items;",
+                  "  pm.expect(items.length).to.be.above(0);",
+                  "  items.forEach(function (row) { pm.expect(row.appliesTo).to.eql('REASSIGN'); });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/reason-codes?appliesTo=REASSIGN"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Terminal availability",
+      "item": [
+        {
+          "name": "20 PUT declaration",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('declareKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('declaration created', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.declarationId).to.be.a('string');",
+                  "  pm.expect(body.replayed).to.eql(false);",
+                  "  pm.expect(body.position.declaredQty).to.eql(240);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{declareKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"terminalId\": \"{{terminalId}}\",\n  \"materialId\": \"{{materialId}}\",\n  \"availabilityDate\": \"{{reserveDate}}\",\n  \"declaredQty\": 240,\n  \"declaredQtyUom\": \"KL\",\n  \"note\": \"Pipeline receipt confirmed; balance is opening stock.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/terminal-stock/declarations",
+            "description": "Append-only revision. The server assigns `revisionNo`. Do not send one. `terminalId` and `materialId` accept an id or a code."
+          }
+        },
+        {
+          "name": "21 PUT declaration — same Idempotency-Key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('replay returns the same declaration', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().replayed).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{declareKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"terminalId\": \"{{terminalId}}\",\n  \"materialId\": \"{{materialId}}\",\n  \"availabilityDate\": \"{{reserveDate}}\",\n  \"declaredQty\": 240,\n  \"declaredQtyUom\": \"KL\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/terminal-stock/declarations",
+            "description": "Run after 20. The same key does not create a second revision."
+          }
+        },
+        {
+          "name": "22 PUT declaration — material not racked (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('terminal does not rack the material', function () {",
+                  "  pm.expect([400, 404]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 400) pm.expect(pm.response.json().code).to.eql('MATERIAL_NOT_RACKED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"terminalId\": \"{{terminalId}}\",\n  \"materialId\": \"{{materialNotRacked}}\",\n  \"availabilityDate\": \"{{reserveDate}}\",\n  \"declaredQty\": 10,\n  \"declaredQtyUom\": \"KL\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/terminal-stock/declarations",
+            "description": "Set `materialNotRacked` to a real material code the terminal does not rack (seed default `XP` — only Manali racks XP). 404 if that material does not exist. 400 `MATERIAL_NOT_RACKED` when it does and the terminal's product list excludes it."
+          }
+        },
+        {
+          "name": "23 GET positions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('position feed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().items).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/terminal-stock?dateFrom={{reserveDate}}&dateTo={{reserveDate}}",
+            "description": "Declared minus committed minus consumed. `availableQty` is null when nothing has been declared."
+          }
+        },
+        {
+          "name": "24 GET declaration history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('history', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().items).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/terminal-stock/declarations?dateFrom={{reserveDate}}&dateTo={{reserveDate}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reserve on confirmation",
+      "item": [
+        {
+          "name": "30 POST draft trip (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('draft is not reserved', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().code).to.eql('ROUTE_NOT_CONFIRMED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId}}-DRAFT\",\n  \"routeStatus\": \"DRAFT\",\n  \"planId\": \"{{planId}}\",\n  \"planKind\": \"LIVE\",\n  \"tripNo\": 1,\n  \"plannedDeparture\": \"{{reserveDate}}T05:30:00+05:30\",\n  \"reserveDate\": \"{{reserveDate}}\",\n  \"orders\": [{ \"orderId\": \"{{orderId}}\" }]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/trips/{{tripId}}-DRAFT/reservations",
+            "description": "A draft is a proposal. Nothing is written."
+          }
+        },
+        {
+          "name": "31 POST scenario (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('scenario reserves nothing', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().code).to.eql('SCENARIO_PLAN');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId}}-SCN\",\n  \"routeStatus\": \"CONFIRMED\",\n  \"planId\": \"{{planId}}-SCN\",\n  \"planKind\": \"SCENARIO\",\n  \"tripNo\": 1,\n  \"plannedDeparture\": \"{{reserveDate}}T05:30:00+05:30\",\n  \"reserveDate\": \"{{reserveDate}}\",\n  \"orders\": [{ \"orderId\": \"{{orderId}}\" }]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/trips/{{tripId}}-SCN/reservations",
+            "description": "A scenario fork reserves nothing. No reservation row and no position change."
+          }
+        },
+        {
+          "name": "32 POST reserve confirmed trip",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('confirmed trip reserves or names why not', function () {",
+                  "  pm.expect([200, 422]).to.include(pm.response.code);",
+                  "  const body = pm.response.json();",
+                  "  if (pm.response.code === 422) {",
+                  "    pm.expect(body.code).to.eql('NO_RACKABLE_TERMINAL');",
+                  "    return;",
+                  "  }",
+                  "  pm.expect(body.reservations).to.be.an('array');",
+                  "  const row = body.reservations[0];",
+                  "  pm.expect(row).to.be.an('object');",
+                  "  pm.expect(['RESERVED', 'SHORT', 'UNVERIFIED']).to.include(row.commitmentOutcome);",
+                  "  pm.collectionVariables.set('reservationId', row.id);",
+                  "  pm.collectionVariables.set('versionNo', String(row.versionNo));",
+                  "  pm.collectionVariables.set('qualifiedQty', String(row.qualifiedQty));",
+                  "  pm.collectionVariables.set('reservedQtyUom', row.reservedQtyUom);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId}}\",\n  \"routeStatus\": \"CONFIRMED\",\n  \"planId\": \"{{planId}}\",\n  \"planKind\": \"LIVE\",\n  \"tripNo\": 1,\n  \"plannedDeparture\": \"{{reserveDate}}T05:30:00+05:30\",\n  \"reserveDate\": \"{{reserveDate}}\",\n  \"orders\": [\n    {\n      \"orderId\": \"{{orderId}}\",\n      \"shipToLatitude\": 13.05,\n      \"shipToLongitude\": 80.25\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/trips/{{tripId}}/reservations",
+            "description": "Idempotent per key and order. Repeating it returns the existing live reservation. Saves `reservationId`, `versionNo`, `qualifiedQty`, `reservedQtyUom`. Packed or unqualified orders are skipped, not failed. 422 when no terminal racks the product."
+          }
+        },
+        {
+          "name": "33 GET queue",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('queue page', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "  pm.expect(body.counts).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations?tripId={{tripId}}&page=1&pageSize=50",
+            "description": "Filters: q, status (repeatable), outcome, terminalId, materialId, reserveDate, reserveDateFrom, reserveDateTo, routeId, orderId, divisionId, expiringBefore, tripId, page, pageSize."
+          }
+        },
+        {
+          "name": "34 GET reservation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('one reservation', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('reservationId'));",
+                  "  pm.expect(body.terminalRacksProduct).to.be.a('boolean');",
+                  "  pm.expect(body.expiresInHours).to.be.a('number');",
+                  "  pm.expect(body.canExpireNow).to.be.a('boolean');",
+                  "  pm.collectionVariables.set('versionNo', String(body.versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}",
+            "description": "`terminalRacksProduct` is computed from current master data. `pesoWarning` is a flag, not a block, when the terminal PESO licence lapses before `reserveDate`."
+          }
+        },
+        {
+          "name": "35 GET events",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ledger has the reserve event', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const events = pm.response.json().events;",
+                  "  pm.expect(events.length).to.be.above(0);",
+                  "  pm.expect(events.some(function (row) { return row.eventType === 'RESERVED'; })).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/events",
+            "description": "Append-only, newest sequence last in this payload is highest `seq` first. `candidates` is the engine's working: distance, rack flag, and why a terminal was rejected."
+          }
+        },
+        {
+          "name": "36 GET export CSV",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('csv', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.text()).to.include('reservationNo');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/export?tripId={{tripId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Amend, reassign, extend",
+      "item": [
+        {
+          "name": "40 PATCH quantity",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('quantity follows qualified qty', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.reservedQty).to.eql(Number(pm.collectionVariables.get('qualifiedQty')));",
+                  "  pm.collectionVariables.set('versionNo', String(body.versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reservedQty\": {{qualifiedQty}},\n  \"reservedQtyUom\": \"{{reservedQtyUom}}\",\n  \"reason\": \"Qualified quantity amended after manual qualification.\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/quantity",
+            "description": "The new quantity must equal the order's current qualified quantity. Anything else is 400 `QTY_NOT_QUALIFIED_QTY`. A stale `versionNo` is 409 `STALE_VERSION`."
+          }
+        },
+        {
+          "name": "41 POST reassign — grounds too short (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('grounds too short', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().code).to.eql('GROUNDS_TOO_SHORT');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toTerminalId\": \"{{toTerminalId}}\",\n  \"reasonCode\": \"RSN_TERMINAL_OUTAGE\",\n  \"grounds\": \"short\",\n  \"reference\": \"TERM-OUT-01\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/reassign-terminal",
+            "description": "Grounds must be at least 8 characters. A 2-character reference is 400 `REFERENCE_REQUIRED`. The reservation is unchanged."
+          }
+        },
+        {
+          "name": "42 POST reassign terminal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reassign applied or waiting', function () {",
+                  "  pm.expect([200, 202, 400]).to.include(pm.response.code);",
+                  "  const body = pm.response.json();",
+                  "  if (pm.response.code === 400) {",
+                  "    pm.expect(['TERMINAL_DOES_NOT_RACK', 'VALIDATION', 'NOT_FOUND']).to.include(body.code);",
+                  "    return;",
+                  "  }",
+                  "  pm.collectionVariables.set('versionNo', String(body.versionNo));",
+                  "  if (pm.response.code === 202) pm.expect(body.status).to.eql('PENDING_COUNTERSIGN');",
+                  "  if (pm.response.code === 200) pm.expect(body.terminalSource).to.eql('REASSIGNED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"toTerminalId\": \"{{toTerminalId}}\",\n  \"reasonCode\": \"RSN_TERMINAL_OUTAGE\",\n  \"grounds\": \"Gantry bays down for pump repair; the departure cannot load at the derived terminal.\",\n  \"reference\": \"TERM-OUT-20261009-02\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/reassign-terminal",
+            "description": "`derivedTerminalId` stays the engine's choice. 400 `TERMINAL_DOES_NOT_RACK` when the target cannot rack the product. 202 when the caller cannot counter-sign: recorded, terminal unchanged."
+          }
+        },
+        {
+          "name": "43 POST countersign",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('countersign or nothing pending', function () {",
+                  "  pm.expect([200, 403, 409]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 200) {",
+                  "    pm.expect(pm.response.json().terminalSource).to.eql('REASSIGNED');",
+                  "    pm.collectionVariables.set('versionNo', String(pm.response.json().versionNo));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/countersign",
+            "description": "Applies a PENDING_COUNTERSIGN reassignment. 409 when the terminal already moved. 403 when the same person who raised the override tries to counter-sign."
+          }
+        },
+        {
+          "name": "44 POST extend expiry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('window extended', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.expiryExtendedCount).to.be.above(0);",
+                  "  pm.collectionVariables.set('versionNo', String(body.versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newExpiresAt\": \"{{reserveDate}}T23:30:00+05:30\",\n  \"reasonCode\": \"EXT_LOADING_DELAYED\",\n  \"grounds\": \"Loading delayed past the original window; the truck is still in the queue.\",\n  \"reference\": \"LOAD-DELAY-01\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/extend-expiry",
+            "description": "Capped by the policy (`maxExpiryExtensions`, seed 2). Over the cap is 400 `EXTENSION_CAP_REACHED`. The new expiry must be later than the current one."
+          }
+        },
+        {
+          "name": "45 POST accept short",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted when short, otherwise not short', function () {",
+                  "  pm.expect([200, 409]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 409) pm.expect(pm.response.json().code).to.eql('NOT_SHORT');",
+                  "  if (pm.response.code === 200) pm.collectionVariables.set('versionNo', String(pm.response.json().versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonCode\": \"SHT_ACCEPTED_PARTIAL\",\n  \"grounds\": \"Customer accepted a partial load against the declared shortfall.\",\n  \"reference\": \"SHORT-OK-01\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/accept-short",
+            "description": "200 only when `commitmentOutcome` is SHORT. A covered reservation returns 409 `NOT_SHORT`. Accepting a shortfall does not cancel or release it."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Dispatch, sweep, consume",
+      "item": [
+        {
+          "name": "50 POST mark dispatched",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('route dispatched', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().routeStatus).to.eql('DISPATCHED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeStatus\": \"DISPATCHED\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/trips/{{tripId}}/route-status",
+            "description": "Stand-in for M05/M07 until the route table exists. A dispatched trip's reservation is excluded from expiry."
+          }
+        },
+        {
+          "name": "51 POST sweep",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('sweep ran', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.skipped).to.be.a('boolean');",
+                  "  pm.expect(body.warned).to.be.a('number');",
+                  "  pm.expect(body.expired).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/v1/ops/reservations/sweep",
+            "description": "Server clock only. Warns once inside the lead, holds until the terminal closes, and never expires a dispatched trip. One sweep at a time; a second overlapping call returns `skipped: true`."
+          }
+        },
+        {
+          "name": "52 POST consume",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('load consumed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('CONSUMED');",
+                  "  pm.collectionVariables.set('versionNo', String(body.versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loadId\": \"LOAD-M04-001\",\n  \"consumedQty\": {{qualifiedQty}},\n  \"consumedQtyUom\": \"{{reservedQtyUom}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/consume",
+            "description": "M06 call. Moves the quantity from committed to consumed. A loaded quantity that differs from the reserved quantity is stored on the event, not absorbed. 409 `NOT_ACTIVE` if the reservation was already released."
+          }
+        },
+        {
+          "name": "53 POST rebuild positions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('projection rebuilt', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().rows).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Idempotency-Key", "value": "{{$guid}}" }],
+            "url": "{{baseUrl}}/api/v1/ops/terminal-stock/rebuild",
+            "description": "Truncates the projection and rebuilds it from current declarations and the reservation ledger."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Release",
+      "item": [
+        {
+          "name": "60 POST reserve second trip",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('second trip reserved', function () {",
+                  "  pm.expect([200, 422]).to.include(pm.response.code);",
+                  "  if (pm.response.code !== 200) return;",
+                  "  const row = pm.response.json().reservations[0];",
+                  "  pm.collectionVariables.set('reservationId', row.id);",
+                  "  pm.collectionVariables.set('versionNo', String(row.versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId2}}\",\n  \"routeStatus\": \"CONFIRMED\",\n  \"planId\": \"{{planId}}\",\n  \"planKind\": \"LIVE\",\n  \"tripNo\": 1,\n  \"plannedDeparture\": \"{{reserveDate}}T06:00:00+05:30\",\n  \"reserveDate\": \"{{reserveDate}}\",\n  \"orders\": [{ \"orderId\": \"{{orderId}}\", \"shipToLatitude\": 13.05, \"shipToLongitude\": 80.25 }]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/trips/{{tripId2}}/reservations",
+            "description": "A released row and a new row for the same order can coexist when the route is different. This trip is the one folder 6 releases. It replaces `reservationId`."
+          }
+        },
+        {
+          "name": "61 POST release stop unassigned",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('released', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('RELEASED');",
+                  "  pm.expect(body.reasonCode).to.eql('REL_STOP_UNASSIGNED');",
+                  "  pm.collectionVariables.set('versionNo', String(body.versionNo));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonCode\": \"REL_STOP_UNASSIGNED\",\n  \"grounds\": \"Stop removed from the confirmed trip before loading.\",\n  \"reference\": \"STOP-REMOVE-01\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/release",
+            "description": "Reason code must apply to RELEASE: REL_TRIP_CANCELLED, REL_ORDER_UNQUALIFIED, REL_STOP_UNASSIGNED, REL_PLAN_DISCARDED. There is no cancel and no DELETE."
+          }
+        },
+        {
+          "name": "62 POST release again (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('already released', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().code).to.eql('ALREADY_RELEASED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonCode\": \"REL_STOP_UNASSIGNED\",\n  \"grounds\": \"Stop removed from the confirmed trip before loading.\",\n  \"reference\": \"STOP-REMOVE-01\",\n  \"versionNo\": {{versionNo}}\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/reservations/{{reservationId}}/release",
+            "description": "Releasing an already-released reservation is 409, not a silent success. Idempotency is the Idempotency-Key, not the status."
+          }
+        },
+        {
+          "name": "63 POST release whole trip",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('trip release', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().reservations).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reasonCode\": \"REL_TRIP_CANCELLED\",\n  \"grounds\": \"Confirmed trip cancelled before the truck was dispatched.\",\n  \"reference\": \"TRIP-CANCEL-01\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/v1/ops/trips/{{tripId2}}/reservations/release",
+            "description": "M05 cancellation path. Releases every live reservation on the trip with REL_TRIP_CANCELLED and marks the trip link CANCELLED. Run after 60 if 61 was skipped; after 61 the trip has nothing left to release and `reservations` is empty."
+          }
+        }
+      ]
+    }
+  ]
+}

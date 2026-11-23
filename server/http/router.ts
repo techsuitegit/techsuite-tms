@@ -80,7 +80,7 @@ export function one(pattern: string) {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGINS?.trim() || "*",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,OPTIONS",
   };
 }

@@ -65,6 +65,10 @@ import { DgRestrictionRoutes } from "@/app/api-services/routes/dg-restriction.ro
 import { OrderRoutes } from "@/app/api-services/routes/order.routes";
 import { QualificationRoutes } from "@/app/api-services/routes/qualification.routes";
 import { RankingRoutes } from "@/app/api-services/routes/ranking.routes";
+import { ReservationController } from "@/app/api-services/controllers/reservation.controller";
+import { ReservationRepository } from "@/app/api-services/repositories/reservation.repository";
+import { ReservationRoutes } from "@/app/api-services/routes/reservation.routes";
+import { ReservationService } from "@/app/api-services/services/reservation.service";
 import { TelemetryDeviceRoutes } from "@/app/api-services/routes/telemetry-device.routes";
 import { HaulierRoutes } from "@/app/api-services/routes/haulier.routes";
 import { ZoneRoutes } from "@/app/api-services/routes/zone.routes";
@@ -146,6 +150,7 @@ const qualificationController = new QualificationController(
 const rankingController = new RankingController(
   new RankingService(new RankingRepository(pool), qualificationRepository, new indexgenerater(pool)),
 );
+const reservationController = new ReservationController(new ReservationService(new ReservationRepository(pool)));
 const telemetryDeviceController = new TelemetryDeviceController(
   new TelemetryDeviceService(new TelemetryDeviceRepository(pool), new indexgenerater(pool)),
 );
@@ -184,6 +189,7 @@ const routes = [
   ...new OrderRoutes(orderController).register(),
   ...new QualificationRoutes(qualificationController).register(),
   ...new RankingRoutes(rankingController).register(),
+  ...new ReservationRoutes(reservationController).register(),
   ...new TelemetryDeviceRoutes(telemetryDeviceController).register(),
   ...new HaulierRoutes(haulierController).register(),
   ...new ZoneRoutes(zoneController).register(),

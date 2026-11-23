@@ -9,6 +9,11 @@ export class MdmError extends Error {
     this.name = "MdmError";
   }
 
+  /** Router and logs read `code`; the constructor argument is `errorCode`. */
+  get code() {
+    return this.errorCode;
+  }
+
   toJson() {
     return this.field
       ? { code: this.errorCode, message: this.message, field: this.field }
